@@ -1,10 +1,13 @@
+import types
+
 
 # MODIFIERS -- attach to another expression
 # these are arbitrarily recursive
 # ? + * ~ <> |
+# : ->
 
 # TERMINALS -- these can be immediately evaluated and produce error or match
-# ! '' : ->
+# ! ''
 
 # EQUIVALENCIES
 # -> is the same as !, without the ability to capture into a local var
@@ -19,20 +22,23 @@
 # [_MAYBE, 'a']  =>  'a'?
 # [_EITHER, 'a', 'b']  =>  'a' | 'b'
 
-_Match = attr.make_class('_Match', ['rule', 'start', 'end'], frozen=True)
+# opcodes that go in rules
 _BIND = object()  # : -- capture current match into name
 _NOT = object()  # ~(a) -- if a fails (good case)
-_HALT = object()  # ~(a) -- if a succeeds (bad case)
 _MAYBE = object()  # ?
 _REPEAT = object()  # +
 _MAYBE_REPEAT = object()  # *
 _EITHER = object()  # |
 _LITERAL = object()  # <>
+_EVAL = object()  # !
+
+# marker result objects
 _ERR = object()  # means an error is being thrown
+_CALL = object()  # means result is TBD from next rule
 
 
 _STACK_OPCODES = (
-    _NOT, _MAYBE, _REPEAT, _MAYBE_REPEAT, _LITERAL, _EITHER)
+    _NOT, _MAYBE, _REPEAT, _MAYBE_REPEAT, _LITERAL, _EITHER, _BIND)
 
 
 @attr.s(frozen=True)
@@ -42,6 +48,7 @@ class Grammar(object):
     '''
     rules = attr.ib()  # labelled offsets in opcodes
     opcodes = attr.ib()  # big list of opcodes
+    pyglobals = attr.ib()  # python variables to expose to eval expressions
 
     def from_text(cls, text):
         '''
@@ -53,7 +60,8 @@ class Grammar(object):
         cur_rule = self.rules[rule_name]
         src_pos = 0  # how much of source has been parsed
         # evaluate, one rule at a time
-        rule_stack = [(cur_rule, 0, [])]
+        rule_stack = [(cur_rule, 0, {})]
+        traps = []  # stack of spots to trap execution e.g. try/except kind of thing
         match_stack = []
         # stack keeps track of matched rules, matched opcodes w/in rule
         # algorithm proceeds as follows:
@@ -65,54 +73,104 @@ class Grammar(object):
             if not rule_stack:
                 # TODO: cleaner error message
                 raise ValueError('extra input')
-            cur_rule, rule_pos, opcode_matches = rule_stack.pop()
+            cur_rule, rule_pos, binds = rule_stack.pop()
             assert rule_pos <= len(cur_rule)
             result = None
-            while rule_pos != len(cur_rule):
+            # "call" down the stack
+            while rule_pos < len(cur_rule):
                 opcode = cur_rule[rule_pos]
-                if result is _ERR:
-                    # child call crashed
-                    if opcode is _NOT:
-                        pass
-                if type(opcode) is str:
+                if type(opcode) is str:  # string literal match
                     if source[src_pos:src_pos + len(opcode)] == opcode:
                         result = cur_rule
-                        opcode_matches.append((rule_pos, src_pos))
                         src_pos += len(opcode)
                     else:
                         result = _ERR
-                elif opcode in _STACK_OPCODES:
-                    match_stack.append((rule_pos, src_pos))  
-                    # check match_stack / rule_stack
-                    continue
-
-                if result is _ERR:
-                    # halt execution, start unwinding
-                    while opcode_matches:
-                        rule_pos, src_pos = match_stack.pop()
-                        opcode = cur_rule[rule_pos]
-                        if opcode is _NOT:
-                            pass
+                    break
+                elif type(opcode) is types.CodeType:  # eval python expression
+                    try:
+                        result = eval(opcode, pyglobals, binds)
+                    except Exception as e:
+                        import traceback; traceback.print_exc()
+                        result = _ERR
+                    break
+                elif type(opcode) is list:
+                    rule_stack.append((opcode, 0, {}))
+                    result = _CALL
                     break
                 else:
-                    rule_pos += 1
-
-
-            if err:
-                while 1:
-                    cur_rule = rule_stack.pop()
-                    if cur_rule is _MAYBE:
-
-                pass  # try to roll back out to an alternate rule via | or ?
-        if err:
+                    assert opcode in _STACK_OPCODES
+                    traps.append((cur_rule, rule_pos, src_pos, binds))
+                rule_pos += 1
+            if result is _CALL:
+                continue
+            # "return" up the stack
+            while traps:
+                cur_rule, rule_pos, last_src_pos, binds = traps.pop()
+                if opcode is _BIND:
+                    if result is not _ERR:
+                        binds[IOU_BIND_NAME] = result
+                        rule_stack.append((cur_rule, rule_pos + 2, binds))
+                elif opcode is _NOT:
+                    if result is _ERR:
+                        result = None
+                        src_pos = last_src_pos
+                        rule_stack.append((cur_rule, rule_pos + 2, binds))
+                        break
+                    else:
+                        result = _ERR
+                elif opcode is _MAYBE:
+                    if result is _ERR:
+                        src_pos = last_src_pos
+                        result = None
+                    rule_stack.append((cur_rule, rule_pos + 2, binds))
+                    break
+                elif opcode is _MAYBE_REPEAT:
+                    if result is _ERR:
+                        # NOTE: rewind src_pos back to last complete match
+                        src_pos = last_src_pos
+                        result = IOU_INTERNAL_STATE
+                        rule_stack.append((cur_rule, rule_pos + 2, binds))
+                        break
+                    else:
+                        IOU_INTERNAL_STATE.append(result)
+                        rule_stack.append((cur_rule, rule_pos + 1, binds))
+                        traps.append((cur_rule, rule_pos, src_pos, binds))
+                        break
+                elif opcode is _REPEAT:
+                    if result is _ERR:
+                        if len(IOU_INTERNAL_STATE) > 0:
+                            result = IOU_INTERNAL_STATE
+                            src_pos = last_src_pos
+                            # NOTE: rewind src_pos back to last complete match
+                            rule_stack.append((cur_rule, rule_pos + 2, binds))
+                            break
+                    else:
+                        IOU_INTERNAL_STATE.append(result)
+                        rule_stack.append((cur_rule, rule_pos + 1, binds))
+                        break
+                elif opcode is _LITERAL:
+                    if result is not _ERR:
+                        result = source[last_src_pos:src_pos]
+                        rule_stack.append((cur_rule, rule_pos + 2, binds))
+                elif opcode is _EITHER:
+                    if result is _ERR:
+                        # try the other branch from the same position
+                        src_pos = last_src_pos
+                        rule_stack.append((cur_rule, rule_pos + 2, binds))
+                        break
+                else:
+                    assert False, "unrecognized opcode"
+        if result is _ERR:
             pass # raise a super-good exception
-        return match_stack[-1]
+        return result
+
+        # GOOD condition is rule stack empty, at last byte
 
 
 AST_GRAMMAR = Grammar(
     )
 
-# ( 'a' | 'b'*) ?  =>  [MAYBE, [OR, ['a'], [ANY, ['b']]]]
+# ( 'a' | 'b'*) ?  =>  [MAYBE, OR, 'a', ANY, 'b']
 
 # MAYBE - switch result to None, stop error
 # OR - if LHS hits error, stop error and go to RHS
