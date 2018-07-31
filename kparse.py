@@ -41,14 +41,16 @@ _STACK_OPCODES = (
     _NOT, _MAYBE, _REPEAT, _MAYBE_REPEAT, _LITERAL, _EITHER, _BIND)
 
 
-@attr.s(frozen=True)
 class Grammar(object):
     '''
     A grammar, generated from an input.
     '''
-    rules = attr.ib()  # labelled offsets in opcodes
-    opcodes = attr.ib()  # big list of opcodes
-    pyglobals = attr.ib()  # python variables to expose to eval expressions
+    # rules = attr.ib()
+    #TODO: switch rules to labelled offsets in opcodes
+    # opcodes = attr.ib()  # big list of opcodes
+    # pyglobals = attr.ib()  # python variables to expose to eval expressions
+    def __init__(self, rules, pyglobals):
+        self.rules, self.pyglobals = rules, pyglobals
 
     def from_text(cls, text):
         '''
@@ -62,7 +64,6 @@ class Grammar(object):
         # evaluate, one rule at a time
         rule_stack = [(cur_rule, 0, {})]
         traps = []  # stack of spots to trap execution e.g. try/except kind of thing
-        match_stack = []
         # stack keeps track of matched rules, matched opcodes w/in rule
         # algorithm proceeds as follows:
         # 1- try to match current rule
@@ -81,7 +82,7 @@ class Grammar(object):
                 opcode = cur_rule[rule_pos]
                 if type(opcode) is str:  # string literal match
                     if source[src_pos:src_pos + len(opcode)] == opcode:
-                        result = cur_rule
+                        result = opcode
                         src_pos += len(opcode)
                     else:
                         result = _ERR
@@ -99,13 +100,18 @@ class Grammar(object):
                     break
                 else:
                     assert opcode in _STACK_OPCODES
-                    traps.append((cur_rule, rule_pos, src_pos, binds))
+                    if opcode in (_REPEAT, _MAYBE_REPEAT):
+                        state = []
+                    else:
+                        state = None
+                    traps.append((cur_rule, rule_pos, src_pos, binds, state))
                 rule_pos += 1
             if result is _CALL:
                 continue
             # "return" up the stack
             while traps:
-                cur_rule, rule_pos, last_src_pos, binds = traps.pop()
+                cur_rule, rule_pos, last_src_pos, binds, state = traps.pop()
+                opcode = cur_rule[rule_pos]
                 if opcode is _BIND:
                     if result is not _ERR:
                         binds[IOU_BIND_NAME] = result
@@ -128,50 +134,62 @@ class Grammar(object):
                     if result is _ERR:
                         # NOTE: rewind src_pos back to last complete match
                         src_pos = last_src_pos
-                        result = IOU_INTERNAL_STATE
+                        result = state
                         rule_stack.append((cur_rule, rule_pos + 2, binds))
                         break
                     else:
-                        IOU_INTERNAL_STATE.append(result)
+                        state.append(result)
                         rule_stack.append((cur_rule, rule_pos + 1, binds))
-                        traps.append((cur_rule, rule_pos, src_pos, binds))
+                        traps.append((cur_rule, rule_pos, src_pos, binds, state))
                         break
                 elif opcode is _REPEAT:
                     if result is _ERR:
-                        if len(IOU_INTERNAL_STATE) > 0:
-                            result = IOU_INTERNAL_STATE
+                        if len(state) > 0:
+                            result = state
                             src_pos = last_src_pos
                             # NOTE: rewind src_pos back to last complete match
                             rule_stack.append((cur_rule, rule_pos + 2, binds))
                             break
                     else:
-                        IOU_INTERNAL_STATE.append(result)
+                        state.append(result)
                         rule_stack.append((cur_rule, rule_pos + 1, binds))
+                        traps.append((cur_rule, rule_pos, src_pos, binds, state))
                         break
                 elif opcode is _LITERAL:
                     if result is not _ERR:
                         result = source[last_src_pos:src_pos]
                         rule_stack.append((cur_rule, rule_pos + 2, binds))
                 elif opcode is _EITHER:
+                    # [ ..., _EITHER, branch1, branch2, ... ]
                     if result is _ERR:
                         # try the other branch from the same position
                         src_pos = last_src_pos
                         rule_stack.append((cur_rule, rule_pos + 2, binds))
                         break
+                    else:
+                        rule_stack.append((cur_rule, rule_pos + 3, binds))
                 else:
                     assert False, "unrecognized opcode"
         if result is _ERR:
-            pass # raise a super-good exception
+            raise Exception('oh no!')  # raise a super-good exception
         return result
 
         # GOOD condition is rule stack empty, at last byte
 
 
-AST_GRAMMAR = Grammar(
-    )
+#AST_GRAMMAR = Grammar(
+#    )
 
 # ( 'a' | 'b'*) ?  =>  [MAYBE, OR, 'a', ANY, 'b']
 
 # MAYBE - switch result to None, stop error
 # OR - if LHS hits error, stop error and go to RHS
 # ANY - allocate list; keep appending match to list until error
+
+
+if __name__ == "__main__":
+    try:
+        # TODO: handle "end of input" cleanly in rules above -- should do one last _ERR unroll
+        assert Grammar({'test': [_REPEAT, 'a']}, {}).parse('a' * 8, 'test') == ['a'] * 8
+    except:
+        import pdb; pdb.post_mortem()
