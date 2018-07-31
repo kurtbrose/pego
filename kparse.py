@@ -108,6 +108,7 @@ class Grammar(object):
                 rule_pos += 1
             if result is _CALL:
                 continue
+            is_stopping = (src_pos == len(source))
             # "return" up the stack
             while traps:
                 cur_rule, rule_pos, last_src_pos, binds, state = traps.pop()
@@ -137,6 +138,9 @@ class Grammar(object):
                         result = state
                         rule_stack.append((cur_rule, rule_pos + 2, binds))
                         break
+                    elif is_stopping:
+                        state.append(result)
+                        result = state
                     else:
                         state.append(result)
                         rule_stack.append((cur_rule, rule_pos + 1, binds))
@@ -150,6 +154,9 @@ class Grammar(object):
                             # NOTE: rewind src_pos back to last complete match
                             rule_stack.append((cur_rule, rule_pos + 2, binds))
                             break
+                    elif is_stopping:
+                        state.append(result)
+                        result = state
                     else:
                         state.append(result)
                         rule_stack.append((cur_rule, rule_pos + 1, binds))
@@ -189,7 +196,6 @@ class Grammar(object):
 
 if __name__ == "__main__":
     try:
-        # TODO: handle "end of input" cleanly in rules above -- should do one last _ERR unroll
         assert Grammar({'test': [_REPEAT, 'a']}, {}).parse('a' * 8, 'test') == ['a'] * 8
     except:
         import pdb; pdb.post_mortem()
