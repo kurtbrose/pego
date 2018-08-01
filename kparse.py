@@ -30,6 +30,7 @@ _REPEAT = object()  # +
 _MAYBE_REPEAT = object()  # *
 _EITHER = object()  # |
 _LITERAL = object()  # <>
+_ANYTHING = object()  # match a single char of anything, like . in regex
 
 # marker result objects
 _ERR = object()  # means an error is being thrown
@@ -97,6 +98,8 @@ class Grammar(object):
                     assert opcode in _STACK_OPCODES
                     if opcode in (_REPEAT, _MAYBE_REPEAT):
                         state = []
+                    elif opcode in _BIND:
+                        state = cur_rule[rule_pos + 1]
                     else:
                         state = None
                     traps.append((cur_rule, rule_pos, src_pos, binds, state))
@@ -109,9 +112,10 @@ class Grammar(object):
                 cur_rule, rule_pos, last_src_pos, binds, state = traps.pop()
                 opcode = cur_rule[rule_pos]
                 if opcode is _BIND:
+                    # [ ..., _BIND, name, expression, ... ]
                     if result is not _ERR:
-                        binds[IOU_BIND_NAME] = result
-                        rule_stack.append((cur_rule, rule_pos + 2, binds))
+                        binds[state] = result
+                        rule_stack.append((cur_rule, rule_pos + 3, binds))
                 elif opcode is _NOT:
                     if result is _ERR:
                         result = None
@@ -186,10 +190,12 @@ class _Ref(object):
 
 _BOOTSTRAP_GRAMMAR = Grammar(
     {
-        'ws': [_REPEAT, _EITHER, ' ', _EITHER, '\t', '\n'],
-        'brk': [_Ref('ws'), _MAYBE, ['#', _MAYBE_REPEAT, _NOT, '\n', '\n']],
+        'ws': [_REPEAT, [_EITHER, ' ', [_EITHER, '\t', '\n']]],
+        'brk': [_Ref('ws'), _MAYBE, ['#', _MAYBE_REPEAT, [_NOT, '\n',] '\n']],
+        'grammar': [_BIND, 'rules', [_REPEAT, _Ref('rule')], compile('dict(rules)')],
         'rule': [_Ref('name'), _Ref('brk'), '=', _Ref('brk'), _Ref('expr')],
-        'name': [],
+        'name': [_LITERAL, [_REPEAT, [_NOT, _Ref('ws'), _ANYTHING]]],
+        'expr': [],
     },
     {
         'Grammar': Grammar
