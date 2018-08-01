@@ -179,8 +179,34 @@ class Grammar(object):
         # GOOD condition is rule stack empty, at last byte
 
 
-#AST_GRAMMAR = Grammar(
-#    )
+class _Ref(object):
+    def __init__(self, rulename):
+        self.rulename = rulename
+
+
+_BOOTSTRAP_GRAMMAR = Grammar(
+    {
+        'ws': [_REPEAT, _EITHER, ' ', _EITHER, '\t', '\n'],
+        'brk': [_Ref('ws'), _MAYBE, ['#', _MAYBE_REPEAT, _NOT, '\n', '\n']],
+        'rule': [_Ref('name'), _Ref('brk'), '=', _Ref('brk'), _Ref('expr')],
+        'name': [],
+    },
+    {
+        'Grammar': Grammar
+    }
+)
+
+
+# grammar that describes the grammar, can be compiled
+# by the bootstrap grammar
+_GRAMMAR_GRAMMAR = r'''
+ws = (' ' | '\t' | '\n')+
+brk = ws ('#' (~'#')* '\n')?
+grammar = (brk? rule)*:rules -> dict(rules)
+rule = name brk '=' brk expr -> (name, expr)
+expr = 
+'''
+
 
 # ( 'a' | 'b'*) ?  =>  [MAYBE, OR, 'a', ANY, 'b']
 
