@@ -65,15 +65,11 @@ class Grammar(object):
         rule_stack = [(cur_rule, 0, {})]
         traps = []  # stack of spots to trap execution e.g. try/except kind of thing
         # stack keeps track of matched rules, matched opcodes w/in rule
-        # algorithm proceeds as follows:
-        # 1- try to match current rule
-        # 2- if failed, back up and find a peer rule
-        #    2A - if this stack unwind gets to the root, raise a good exception
-        # 3-
-        while src_pos != len(source):  # keep going until source parsed (or error)
+        is_stopping = False
+        while not is_stopping:  # keep going until source parsed (or error)
             if not rule_stack:
                 # TODO: cleaner error message
-                raise ValueError('extra input')
+                raise ValueError('extra input: {}'.format(repr(source[src_pos:])))
             cur_rule, rule_pos, binds = rule_stack.pop()
             assert rule_pos <= len(cur_rule)
             result = None
@@ -195,7 +191,10 @@ class Grammar(object):
 
 
 if __name__ == "__main__":
-    try:
-        assert Grammar({'test': [_REPEAT, 'a']}, {}).parse('a' * 8, 'test') == ['a'] * 8
-    except:
-        import pdb; pdb.post_mortem()
+    def chk(rule, src, result):
+        assert Grammar({'test': rule}, {}).parse(src, 'test') == result
+    chk(['aaa'], 'aaa', 'aaa')
+    chk([_REPEAT, 'a'], 'a' * 8, ['a'] * 8)
+    chk([_MAYBE_REPEAT, 'a'], 'a' * 8, ['a'] * 8)
+    chk([_MAYBE_REPEAT, 'a'], '', [])
+
