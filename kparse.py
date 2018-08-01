@@ -30,7 +30,6 @@ _REPEAT = object()  # +
 _MAYBE_REPEAT = object()  # *
 _EITHER = object()  # |
 _LITERAL = object()  # <>
-_EVAL = object()  # !
 
 # marker result objects
 _ERR = object()  # means an error is being thrown
@@ -85,7 +84,7 @@ class Grammar(object):
                     break
                 elif type(opcode) is types.CodeType:  # eval python expression
                     try:
-                        result = eval(opcode, pyglobals, binds)
+                        result = eval(opcode, self.pyglobals, binds)
                     except Exception as e:
                         import traceback; traceback.print_exc()
                         result = _ERR
@@ -197,4 +196,8 @@ if __name__ == "__main__":
     chk([_REPEAT, 'a'], 'a' * 8, ['a'] * 8)
     chk([_MAYBE_REPEAT, 'a'], 'a' * 8, ['a'] * 8)
     chk([_MAYBE_REPEAT, 'a'], '', [])
-
+    chk([_EITHER, 'a', 'b'], 'a', 'a')
+    chk([_EITHER, 'a', 'b'], 'b', 'b')
+    chk([_LITERAL, _REPEAT, 'a'], 'a' * 8, 'a' * 8)
+    chk([_NOT, 'a', 'b'], 'b', 'b')
+    chk([compile('1', '<string>', 'eval')], '', 1)
