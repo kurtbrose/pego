@@ -222,18 +222,20 @@ ws = (' ' | '\t' | '\n')+
 brk = ws ('#' (~'#')* '\n')?
 grammar = (brk? rule)*:rules -> dict(rules)
 rule = name brk '=' brk expr -> (name, expr)
-expr = parens | not | literal | str | py
+expr = leaf_expr | either | bind | maybe_repeat | repeat
 # these are unambiguous because they have a leading char
 parens = '(' expr:inner ')' -> [inner]
 not = '~' expr:inner -> [_NOT, inner]
 literal = '<' expr:inner '>' -> [_LITERAL, inner]
 str = '\'' <('\\\'' | (~'\'' .))*>:val '\'' -> val
 py = '!(' <.*>:code ')' -> _py(code)
+leaf_expr = parens | not | literal | str | py
 # these need to have a strict order since they do not have a leading char
-maybe_repeat = expr:inner '+' -> [_MAYBE_REPEAT, inner]
-repeat = expr:inner '*' -> [_REPEAT, inner]
-either = expr:first brk '|' brk expr:second -> [_EITHER, first] + second
-bind = expr:inner ':' name:name -> [_BIND, name, inner]
+either = either1:first brk '|' brk either1:second -> [_EITHER, first] + second
+either1 = leaf_expr | maybe_repeat | repeat | bind
+bind = (leaf_expr | maybe_repeat | repeat):inner ':' name:name -> [_BIND, name, inner]
+maybe_repeat = leaf_expr:inner '+' -> [_MAYBE_REPEAT, inner]
+repeat = leaf_expr:inner '*' -> [_REPEAT, inner]
 '''
 
 
