@@ -98,11 +98,13 @@ class Grammar(object):
                     assert opcode in _STACK_OPCODES
                     if opcode in (_REPEAT, _MAYBE_REPEAT):
                         state = []
-                    elif opcode in _BIND:
+                    elif opcode is _BIND:
                         state = cur_rule[rule_pos + 1]
                     else:
                         state = None
                     traps.append((cur_rule, rule_pos, src_pos, binds, state))
+                    if opcode is _BIND:
+                        rule_pos += 1  # advance 1 more since pos + 1 is bind name
                 rule_pos += 1
             if result is _CALL:
                 continue
@@ -188,12 +190,15 @@ class _Ref(object):
         self.rulename = rulename
 
 
-_BOOTSTRAP_GRAMMAR = Grammar(
+_py = lambda code: compile(code, '<string>', 'eval')
+
+
+_BOOTSTRAP1_GRAMMAR = Grammar(
     {
-        'ws': [_REPEAT, [_EITHER, ' ', [_EITHER, '\t', '\n']]],
-        'brk': [_Ref('ws'), _MAYBE, ['#', _MAYBE_REPEAT, [_NOT, '\n',] '\n']],
-        'grammar': [_BIND, 'rules', [_REPEAT, _Ref('rule')], compile('dict(rules)')],
-        'rule': [_Ref('name'), _Ref('brk'), '=', _Ref('brk'), _Ref('expr')],
+        'ws': [_REPEAT, [_EITHER, ' ',  '\n']],
+        'brk': [_Ref('ws'), _MAYBE, ['#', _MAYBE_REPEAT, [_NOT, '\n',], '\n']],
+        'grammar': [_BIND, 'rules', [_REPEAT, _Ref('rule')], _py('dict(rules)')],
+        'rule': [_BIND, 'name', _Ref('name'), '= ', _BIND, 'expr', _Ref('expr'), _py('(name, expr)')],
         'name': [_LITERAL, [_REPEAT, [_NOT, _Ref('ws'), _ANYTHING]]],
         'expr': [],
     },
@@ -203,8 +208,15 @@ _BOOTSTRAP_GRAMMAR = Grammar(
 )
 
 
-# grammar that describes the grammar, can be compiled
-# by the bootstrap grammar
+# the complete grammar, expressed using as few symbols as possible
+# in order to make the first bootstrap grammar which must be hand
+# coded as simple as possible
+_BOOTSTRAP2_GRAMMAR = '''
+'''
+
+
+# grammar that describes the grammar, described in a fully
+# semantic fashion
 _GRAMMAR_GRAMMAR = r'''
 ws = (' ' | '\t' | '\n')+
 brk = ws ('#' (~'#')* '\n')?
@@ -232,4 +244,5 @@ if __name__ == "__main__":
     chk([_EITHER, 'a', 'b'], 'b', 'b')
     chk([_LITERAL, _REPEAT, 'a'], 'a' * 8, 'a' * 8)
     chk([_NOT, 'a', 'b'], 'b', 'b')
-    chk([compile('1', '<string>', 'eval')], '', 1)
+    chk([_py('1')], '', 1)
+    chk([_BIND, 'foo', _py('1'), _py('foo')], '', 1)
