@@ -8,7 +8,7 @@ not limit performance to the speed of generated
 python code.
 """
 
-from setuptools import setuptools
+from setuptools import setup
 
 
 __author__ = 'Kurt Rose'
