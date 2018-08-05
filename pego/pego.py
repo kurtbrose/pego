@@ -22,15 +22,30 @@ import types
 # [_MAYBE, 'a']  =>  'a'?
 # [_EITHER, 'a', 'b']  =>  'a' | 'b'
 
-# opcodes that go in rules
-_BIND = object()  # : -- capture current match into name
-_NOT = object()  # ~(a) -- if a fails (good case)
-_MAYBE = object()  # ?
-_REPEAT = object()  # +
-_MAYBE_REPEAT = object()  # *
-_EITHER = object()  # |
-_LITERAL = object()  # <>
-_ANYTHING = object()  # match a single char of anything, like . in regex
+
+class Opcode(object):
+    '''Parsing VM Opcodes'''
+    def __init__(self, name, description):
+        self.name, self.description = name, description
+
+    def __repr__(self):
+        return '<[' + self.name + ']>'
+
+
+def _opc(name, description):
+    globals()['_' + name] = Opcode(name, description)
+
+
+_opc("BIND", "a:name -- capture current match into name")
+_opc("NOT", "~(a) -- if a fails (good case)")
+_opc("MAYBE", "a? -- optional")
+_opc("REPEAT", "a+ -- repeat, at least one")
+_opc("MAYBE_REPEAT", "a* -- optional repeating")
+_opc("EITHER", "a | b -- either match a or b")
+_opc("LITERAL", "<a> -- throw away result and return accepted input")
+_opc("ANYTHING", ". -- match a single instance of anything")
+_opc("CHECK", "?(py) check that the current result is truthy")
+
 
 # marker result objects
 _ERR = object()  # means an error is being thrown
@@ -214,6 +229,15 @@ _BOOTSTRAP1_GRAMMAR = Grammar(
 _BOOTSTRAP2_GRAMMAR = '''
 '''
 
+# builtins
+#    token, anything (.), end (matches end of input)
+# grammar reference
+#    a grammar may refer to rules from another grammar via
+#    dotted notation; e.g. to reference the select rule from
+#    a sql grammar: sql.select
+#    these grammar references are passed in
+# stdlib
+#    c_comment, cpp_comment, py_comment
 
 # grammar that describes the grammar, described in a fully
 # semantic fashion
@@ -221,21 +245,33 @@ _GRAMMAR_GRAMMAR = r'''
 ws = (' ' | '\t' | '\n')+
 brk = ws ('#' (~'#')* '\n')?
 grammar = (brk? rule)*:rules -> dict(rules)
-rule = name brk '=' brk expr -> (name, expr)
-expr = leaf_expr | either | bind | maybe_repeat | repeat
+rule = name "=" brk expr -> (name, expr)
+expr = (leaf_expr | either | bind | maybe_repeat | repeat):body ("->" pyc:action -> body + [action])
 # these are unambiguous because they have a leading char
 parens = '(' expr:inner ')' -> [inner]
 not = '~' expr:inner -> [_NOT, inner]
 literal = '<' expr:inner '>' -> [_LITERAL, inner]
 str = '\'' <('\\\'' | (~'\'' .))*>:val '\'' -> val
-py = '!(' <.*>:code ')' -> _py(code)
+tok = '\"' <('\\\"' | (~'\"' .))*>:val '\"' `token(val)`
+py = '!(' pyc:code ')' -> code
+pyc = <python.expr> -> _py(code)
 leaf_expr = parens | not | literal | str | py
 # these need to have a strict order since they do not have a leading char
-either = either1:first brk '|' brk either1:second -> [_EITHER, first] + second
+either = either1:first "|" either1:second -> [_EITHER, first] + second
 either1 = leaf_expr | maybe_repeat | repeat | bind
 bind = (leaf_expr | maybe_repeat | repeat):inner ':' name:name -> [_BIND, name, inner]
-maybe_repeat = leaf_expr:inner '+' -> [_MAYBE_REPEAT, inner]
-repeat = leaf_expr:inner '*' -> [_REPEAT, inner]
+maybe_repeat = leaf_expr:inner "+" -> [_MAYBE_REPEAT, inner]
+repeat = leaf_expr:inner "*" -> [_REPEAT, inner]
+'''
+
+_PYTHON_GRAMMAR = r'''
+expr = dict | tuple | list | str
+dict = "{" (expr ":" expr ","?)* "}"
+set = "{" expr ","? "}"
+tuple = "(" expr ","? ")"
+list = "[" expr ","? "]"
+str = ('u' | 'r' | 'b')? (str_1s | str_3s | str_1d | str_3d)
+str_1s =  
 '''
 
 
