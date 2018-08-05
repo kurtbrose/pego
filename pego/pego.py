@@ -73,8 +73,20 @@ class Grammar(object):
         '''
         return cls(AST_GRAMMAR.parse(text))
 
-    def parse(self, source, rule_name):
-        cur_rule = self.rules[rule_name]
+
+class Parser(object):
+    '''Python Parser -- compile one of these to build a parser'''
+    def __init__(self, grammar, rule_name):
+        self.grammar, self.rule_name = grammar, rule_name
+
+    @classmethod
+    def compile(cls, grammar, rule_name):
+        '''compile a given grammar + rule_name and get back a parser'''
+        # TODO: accept a Rule class which knows its source Grammar?
+        return PyParser(grammar, rule_name)
+
+    def parse(self, source):
+        cur_rule = self.grammar.rules[self.rule_name]
         src_pos = 0  # how much of source has been parsed
         # evaluate, one rule at a time
         rule_stack = [(cur_rule, 0, {})]
@@ -100,7 +112,7 @@ class Grammar(object):
                     break
                 elif type(opcode) is types.CodeType:  # eval python expression
                     try:
-                        result = eval(opcode, self.pyglobals, binds)
+                        result = eval(opcode, self.grammar.pyglobals, binds)
                     except Exception as e:
                         import traceback; traceback.print_exc()
                         result = _ERR
@@ -284,7 +296,7 @@ str_1s =
 
 if __name__ == "__main__":
     def chk(rule, src, result):
-        assert Grammar({'test': rule}, {}).parse(src, 'test') == result
+        assert Parser(Grammar({'test': rule}, {}), 'test').parse(src) == result
     chk(['aaa'], 'aaa', 'aaa')
     chk([_REPEAT, 'a'], 'a' * 8, ['a'] * 8)
     chk([_MAYBE_REPEAT, 'a'], 'a' * 8, ['a'] * 8)
@@ -295,3 +307,4 @@ if __name__ == "__main__":
     chk([_NOT, 'a', 'b'], 'b', 'b')
     chk([_py('1')], '', 1)
     chk([_BIND, 'foo', _py('1'), _py('foo')], '', 1)
+    print("GOOD")
