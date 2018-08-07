@@ -118,7 +118,14 @@ class Parser(object):
                         result = _ERR
                     break
                 elif type(opcode) is list:
-                    rule_stack.append((opcode, 0, {}))
+                    rule_pos += 1
+                    argmap = cur_rule[rule_pos]
+                    assert type(argmap) is dict
+                    args = {}
+                    for argname, argref in argmap.items():
+                        args[argname] = binds[argref]
+                    rule_stack.append((cur_rule, rule_pos, binds))
+                    rule_stack.append((opcode, 0, args))
                     result = _CALL
                     break
                 else:
@@ -217,6 +224,11 @@ class _Ref(object):
         self.rulename = rulename
 
 
+class _Call(object):
+    def __init__(self, rulename, arglist):
+        self.rulename, self.arglist = rulename, arglist
+
+
 _py = lambda code: compile(code, '<string>', 'eval')
 
 
@@ -256,8 +268,14 @@ _BOOTSTRAP2_GRAMMAR = '''
 _GRAMMAR_GRAMMAR = r'''
 ws = (' ' | '\t' | '\n')+
 brk = ws ('#' (~'#')* '\n')?
+# TODO: better way to express this natively -- maybe support regex syntax
+letter = .:c ?(c in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ')
+digit = .:c ?(c in '1234567890')
+name = <letter | '_' (letter | digit | '_')*>
 grammar = (brk? rule)*:rules -> dict(rules)
-rule = name "=" brk expr -> (name, expr)
+rule = name args "=" brk expr -> (name, args, expr)
+args = arg*
+arg = (name?:match ':' name:bindname) -> (match, bindname)
 expr = (leaf_expr | either | bind | maybe_repeat | repeat):body ("->" pyc:action -> body + [action])
 # these are unambiguous because they have a leading char
 parens = '(' expr:inner ')' -> [inner]
@@ -267,6 +285,7 @@ str = '\'' <('\\\'' | (~'\'' .))*>:val '\'' -> val
 tok = '\"' <('\\\"' | (~'\"' .))*>:val '\"' `token(val)`
 py = '!(' pyc:code ')' -> code
 pyc = <python.expr> -> _py(code)
+call_rule = name:rulename ('(' name:first (',' name)*:rest ')' -> [first] + rest)?:args -> Call(rulename, args)
 leaf_expr = parens | not | literal | str | py
 # these need to have a strict order since they do not have a leading char
 either = either1:first "|" either1:second -> [_EITHER, first] + second
@@ -276,14 +295,19 @@ maybe_repeat = leaf_expr:inner "+" -> [_MAYBE_REPEAT, inner]
 repeat = leaf_expr:inner "*" -> [_REPEAT, inner]
 '''
 
+
 _PYTHON_GRAMMAR = r'''
-expr = dict | tuple | list | str
+expr = dict | tuple | list | str | ref
 dict = "{" (expr ":" expr ","?)* "}"
 set = "{" expr ","? "}"
 tuple = "(" expr ","? ")"
 list = "[" expr ","? "]"
 str = ('u' | 'r' | 'b')? (str_1s | str_3s | str_1d | str_3d)
-str_1s =  
+strgen :quote = quote <(('\\' quote) | (~quote .))*>:val quote -> val
+str_1s = strgen('\'')
+str_3s = strgen('\'\'\'')
+str_1d = strgen('"')
+str_3d = strgen('"""')
 '''
 
 
@@ -307,4 +331,5 @@ if __name__ == "__main__":
     chk([_NOT, 'a', 'b'], 'b', 'b')
     chk([_py('1')], '', 1)
     chk([_BIND, 'foo', _py('1'), _py('foo')], '', 1)
+    chk([_BIND, 'foo', _py('1'), [_py('bar')], {'bar': 'foo'}], '', 1)
     print("GOOD")
