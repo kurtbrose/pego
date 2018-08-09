@@ -67,11 +67,11 @@ class Grammar(object):
     def __init__(self, rules, pyglobals):
         self.rules, self.pyglobals = rules, pyglobals
 
-    def from_text(cls, text):
+    def from_text(cls, text, pyglobals=None):
         '''
         parse ASTs from text and construct a Grammar
         '''
-        return cls(AST_GRAMMAR.parse(text))
+        return cls(AST_GRAMMAR.parse(text), pyglobals=pyglobals or {})
 
 
 class Parser(object):
@@ -86,6 +86,8 @@ class Parser(object):
         return PyParser(grammar, rule_name)
 
     def parse(self, source):
+        # TODO: deterministic UTF-8 encoding of source and rules strings?
+        str_source = isinstance(source, basestring)
         cur_rule = self.grammar.rules[self.rule_name]
         src_pos = 0  # how much of source has been parsed
         # evaluate, one rule at a time
@@ -104,9 +106,13 @@ class Parser(object):
             while rule_pos < len(cur_rule):
                 opcode = cur_rule[rule_pos]
                 if type(opcode) is str:  # string literal match
-                    if source[src_pos:src_pos + len(opcode)] == opcode:
+                    if str_source and source[src_pos:src_pos + len(opcode)] == opcode:
                         result = opcode
                         src_pos += len(opcode)
+                    elif not str_source and source[src_pos] == opcode:
+                        # sequence matching
+                        result = opcode
+                        src_pos += 1
                     else:
                         result = _ERR
                     break
@@ -303,12 +309,29 @@ set = "{" expr ","? "}"
 tuple = "(" expr ","? ")"
 list = "[" expr ","? "]"
 str = ('u' | 'r' | 'b')? (str_1s | str_3s | str_1d | str_3d)
-strgen :quote = quote <(('\\' quote) | (~quote .))*>:val quote -> val
+strgen :quote = quote (('\\' quote) | (~quote .))
 str_1s = strgen('\'')
 str_3s = strgen('\'\'\'')
 str_1d = strgen('"')
 str_3d = strgen('"""')
 '''
+
+
+class Rule(object):
+    '''
+    A rule that can be included in a grammar.
+
+    name -- the name by which this rule can be called from other rules
+    args -- a sequence of matching expressions applied to
+            input to determine if this rule matches
+            (rule names may be overloaded, in which case
+            they are tried in the order they occur in the
+            grammar)
+    expr -- the matching expression sequence that forms the
+            body of the rule
+    '''
+    def __init__(self, name, args, expr):
+        self.name, self.args, self.expr = name, args, expr
 
 
 # ( 'a' | 'b'*) ?  =>  [MAYBE, OR, 'a', ANY, 'b']
@@ -319,8 +342,9 @@ str_3d = strgen('"""')
 
 
 if __name__ == "__main__":
-    def chk(rule, src, result):
-        assert Parser(Grammar({'test': rule}, {}), 'test').parse(src) == result
+    def chk(rule, src, result, pyglobals=None):
+        p = Parser(Grammar({'test': rule}, pyglobals or {}), 'test')
+        assert p.parse(src) == result
     chk(['aaa'], 'aaa', 'aaa')
     chk([_REPEAT, 'a'], 'a' * 8, ['a'] * 8)
     chk([_MAYBE_REPEAT, 'a'], 'a' * 8, ['a'] * 8)
