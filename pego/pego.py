@@ -20,7 +20,7 @@ import types
 
 # a rule is a sequence of objects for the convenience of the evaluator:
 # [_MAYBE, 'a']  =>  'a'?
-# [_EITHER, 'a', 'b']  =>  'a' | 'b'
+# [_OR, 'a', 'b']  =>  'a' | 'b'
 
 
 class Opcode(object):
@@ -41,7 +41,7 @@ _opc("NOT", "~(a) -- if a fails (good case)")
 _opc("MAYBE", "a? -- optional")
 _opc("REPEAT", "a+ -- repeat, at least one")
 _opc("MAYBE_REPEAT", "a* -- optional repeating")
-_opc("EITHER", "a | b -- either match a or b")
+_opc("OR", "a | b -- either match a or b")
 _opc("LITERAL", "<a> -- throw away result and return accepted input")
 _opc("ANYTHING", ". -- match a single instance of anything")
 _opc("CHECK", "?(py) check that the current result is truthy")
@@ -53,7 +53,7 @@ _CALL = object()  # means result is TBD from next rule
 
 
 _STACK_OPCODES = (
-    _NOT, _MAYBE, _REPEAT, _MAYBE_REPEAT, _LITERAL, _EITHER, _BIND)
+    _NOT, _MAYBE, _REPEAT, _MAYBE_REPEAT, _LITERAL, _OR, _BIND)
 
 
 class Grammar(object):
@@ -215,8 +215,8 @@ class Parser(object):
                     if result is not _ERR:
                         result = source[last_src_pos:src_pos]
                         rule_stack.append((cur_rule, rule_pos + 2, binds))
-                elif opcode is _EITHER:
-                    # [ ..., _EITHER, branch1, branch2, ... ]
+                elif opcode is _OR:
+                    # [ ..., _OR, branch1, branch2, ... ]
                     if result is _ERR:
                         # try the other branch from the same position
                         src_pos = last_src_pos
@@ -248,7 +248,7 @@ _py = lambda code: compile(code, '<string>', 'eval')
 
 _BOOTSTRAP1_GRAMMAR = Grammar(
     {
-        'ws': [_REPEAT, [_EITHER, ' ',  '\n']],
+        'ws': [_REPEAT, [_OR, ' ',  '\n']],
         'brk': [_Ref('ws'), _MAYBE, ['#', _MAYBE_REPEAT, [_NOT, '\n',], '\n']],
         'grammar': [_BIND, 'rules', [_REPEAT, _Ref('rule')], _py('dict(rules)')],
         'rule': [_BIND, 'name', _Ref('name'), '= ', _BIND, 'expr', _Ref('expr'), _py('(name, expr)')],
@@ -302,7 +302,7 @@ pyc = <python.expr> -> _py(code)
 call_rule = name:rulename ('(' name:first (',' name)*:rest ')' -> [first] + rest)?:args -> Call(rulename, args)
 leaf_expr = parens | not | literal | str | py
 # these need to have a strict order since they do not have a leading char
-either = either1:first "|" either1:second -> [_EITHER, first] + second
+either = either1:first "|" either1:second -> [_OR, first] + second
 either1 = leaf_expr | maybe_repeat | repeat | bind
 bind = (leaf_expr | maybe_repeat | repeat):inner ':' name:name -> [_BIND, name, inner]
 maybe_repeat = leaf_expr:inner "+" -> [_MAYBE_REPEAT, inner]
@@ -357,8 +357,8 @@ if __name__ == "__main__":
     chk([_REPEAT, 'a'], 'a' * 8, ['a'] * 8)
     chk([_MAYBE_REPEAT, 'a'], 'a' * 8, ['a'] * 8)
     chk([_MAYBE_REPEAT, 'a'], '', [])
-    chk([_EITHER, 'a', 'b'], 'a', 'a')
-    chk([_EITHER, 'a', 'b'], 'b', 'b')
+    chk([_OR, 'a', 'b'], 'a', 'a')
+    chk([_OR, 'a', 'b'], 'b', 'b')
     chk([_LITERAL, _REPEAT, 'a'], 'a' * 8, 'a' * 8)
     chk([_NOT, 'a', 'b'], 'b', 'b')
     chk([_py('1')], '', 1)
