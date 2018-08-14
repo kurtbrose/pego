@@ -105,7 +105,15 @@ class Parser(object):
             # "call" down the stack
             while rule_pos < len(cur_rule):
                 opcode = cur_rule[rule_pos]
-                if type(opcode) is str:  # string literal match
+                if opcode is _ANYTHING:
+                    if src_pos < len(source):
+                        result = source[src_pos]
+                        src_pos += 1
+                        rule_pos += 1
+                    else:
+                        result = _ERR
+                    break
+                elif type(opcode) is str:  # string literal match
                     if str_source and source[src_pos:src_pos + len(opcode)] == opcode:
                         result = opcode
                         src_pos += len(opcode)
@@ -356,4 +364,10 @@ if __name__ == "__main__":
     chk([_py('1')], '', 1)
     chk([_BIND, 'foo', _py('1'), _py('foo')], '', 1)
     chk([_BIND, 'foo', _py('1'), [_py('bar')], {'bar': 'foo'}], '', 1)
+    chk([_NOT, _ANYTHING], '', None)
+    try:
+        chk([_NOT, _ANYTHING], 'a', None)
+        assert False, "not anything excepted non empty input"
+    except Exception:
+        pass # good
     print("GOOD")
