@@ -45,7 +45,7 @@ _opc("OR", "a | b -- either match a or b")
 _opc("LITERAL", "<a> -- throw away result and return accepted input")
 _opc("ANYTHING", ". -- match a single instance of anything")
 _opc("CHECK", "?(py) check that the current result is truthy")
-_opc("IF", "a + b | c + d -- like OR but once a or c matches, b or d are no longer optional")
+_opc("IF", "a b -- if condition a passes, apply b; else error")
 
 # marker result objects
 _ERR = object()  # means an error is being thrown
@@ -86,66 +86,89 @@ class Parser(object):
         return PyParser(grammar, rule_name)
 
     def parse(self, source):
+        '''
+        this parser operates using a stack of blocks
+        "block" means the same thing here as in programming language structure:
+        it is a sequence of opcodes that should be executed one after the other
+        with no flow control (other than halting on errors)
+
+        some opcodes set "traps" as they move along; this is similar
+        to a try/except or context manager: the traps will be unwound
+        on block exit before moving to the next block up the stack
+
+        if after unwinding all of the traps the result is error,
+        then the traps of the next block up should also be unwound
+        continuing all the way up to root
+        '''
         # TODO: deterministic UTF-8 encoding of source and rules strings?
         str_source = isinstance(source, basestring)
-        cur_rule = self.grammar.rules[self.rule_name]
+        cur_block = self.grammar.rules[self.rule_name]
         src_pos = 0  # how much of source has been parsed
         # evaluate, one rule at a time
-        rule_stack = [(cur_rule, 0, {})]
-        traps = []  # stack of spots to trap execution e.g. try/except kind of thing
+        block_stack = [(cur_block, 0, {}, [])]
         # stack keeps track of matched rules, matched opcodes w/in rule
         is_stopping = False
         while not is_stopping:  # keep going until source parsed (or error)
-            if not rule_stack:
+            if not block_stack:
                 # TODO: cleaner error message
                 raise ValueError('extra input: {}'.format(repr(source[src_pos:])))
-            cur_rule, rule_pos, binds = rule_stack.pop()
-            assert rule_pos <= len(cur_rule)
+            cur_block, block_pos, binds, traps = block_stack.pop()
+            assert block_pos <= len(cur_block)
             result = None
+            print "\nEVAL", cur_block[block_pos:]
             # "call" down the stack
-            while rule_pos < len(cur_rule):
-                opcode = cur_rule[rule_pos]
+            while block_pos < len(cur_block):
+                '''
+                this loop evaluates a rule "segment" -- currently a list
+                until it reaches the end; after that point, it moves to
+                the second loop which unwraps the traps set by this forward
+                evaluation
+                '''
+                opcode = cur_block[block_pos]
+                print opcode,
                 if opcode is _ANYTHING:
                     if src_pos < len(source):
                         result = source[src_pos]
                         src_pos += 1
-                        rule_pos += 1
                     else:
                         result = _ERR
-                    break
+                        break
                 elif type(opcode) is str:  # string literal match
                     if str_source and source[src_pos:src_pos + len(opcode)] == opcode:
                         result = opcode
                         src_pos += len(opcode)
+                        print "MATCHED", opcode
                     elif not str_source and source[src_pos] == opcode:
                         # sequence matching
                         result = opcode
                         src_pos += 1
                     else:
                         result = _ERR
-                    break
+                        break
                 elif type(opcode) is types.CodeType:  # eval python expression
                     try:
                         result = eval(opcode, self.grammar.pyglobals, binds)
                     except Exception as e:
                         import traceback; traceback.print_exc()
                         result = _ERR
-                    break
+                        break
                 elif type(opcode) is list:
                     # internal flow control w/in a rule; same scope
-                    rule_stack.append((cur_rule, rule_pos, binds))
-                    rule_stack.append((opcode, 0, binds))
+                    block_stack.append((cur_block, block_pos, binds, traps))
+                    block_stack.append((opcode, 0, binds, []))
+                    break
                 elif opcode is _CALL:
+                    # moving between rules; new scope
                     # TODO: working towards getting this going
                     # with the proper ometa semantics
-                    rule_pos += 1
-                    argmap = cur_rule[rule_pos]
+                    block_pos += 1
+                    argmap = cur_block[block_pos]
                     assert type(argmap) is dict
                     args = {}
                     for argname, argref in argmap.items():
                         args[argname] = binds[argref]
-                    rule_stack.append((cur_rule, rule_pos, binds))
-                    rule_stack.append((opcode, 0, args))
+                    block_stack.append((cur_block, block_pos, binds, traps))
+                    block_stack.append((opcode, 0, args, []))
                     result = _CALL
                     break
                 else:
@@ -153,30 +176,30 @@ class Parser(object):
                     if opcode in (_REPEAT, _MAYBE_REPEAT):
                         state = []
                     elif opcode is _BIND:
-                        state = cur_rule[rule_pos + 1]
+                        state = cur_block[block_pos + 1]
                     else:
                         state = None
-                    traps.append((cur_rule, rule_pos, src_pos, binds, state))
+                    traps.append((cur_block, block_pos, src_pos, binds, state))
                     if opcode is _BIND:
-                        rule_pos += 1  # advance 1 more since pos + 1 is bind name
-                rule_pos += 1
+                        block_pos += 1  # advance 1 more since pos + 1 is bind name
+                block_pos += 1
             if result is _CALL:
                 continue
-            is_stopping = (src_pos == len(source))
+            is_stopping = (src_pos == len(source))  # check if all source is parsed
             # "return" up the stack
             while traps:
-                cur_rule, rule_pos, last_src_pos, binds, state = traps.pop()
-                opcode = cur_rule[rule_pos]
+                cur_block, block_pos, last_src_pos, binds, state = traps.pop()
+                opcode = cur_block[block_pos]
                 if opcode is _BIND:
                     # [ ..., _BIND, name, expression, ... ]
                     if result is not _ERR:
                         binds[state] = result
-                        rule_stack.append((cur_rule, rule_pos + 3, binds))
+                        block_stack.append((cur_block, block_pos + 3, binds))
                 elif opcode is _NOT:
                     if result is _ERR:
                         result = None
                         src_pos = last_src_pos
-                        rule_stack.append((cur_rule, rule_pos + 2, binds))
+                        block_stack.append((cur_block, block_pos + 2, binds))
                         break
                     else:
                         result = _ERR
@@ -184,22 +207,22 @@ class Parser(object):
                     if result is _ERR:
                         src_pos = last_src_pos
                         result = None
-                    rule_stack.append((cur_rule, rule_pos + 2, binds))
+                    block_stack.append((cur_block, block_pos + 2, binds))
                     break
                 elif opcode is _MAYBE_REPEAT:
                     if result is _ERR:
                         # NOTE: rewind src_pos back to last complete match
                         src_pos = last_src_pos
                         result = state
-                        rule_stack.append((cur_rule, rule_pos + 2, binds))
+                        block_stack.append((cur_block, block_pos + 2, binds))
                         break
                     elif is_stopping:
                         state.append(result)
                         result = state
                     else:
                         state.append(result)
-                        rule_stack.append((cur_rule, rule_pos + 1, binds))
-                        traps.append((cur_rule, rule_pos, src_pos, binds, state))
+                        block_stack.append((cur_block, block_pos + 1, binds))
+                        traps.append((cur_block, block_pos, src_pos, binds, state))
                         break
                 elif opcode is _REPEAT:
                     if result is _ERR:
@@ -207,35 +230,36 @@ class Parser(object):
                             result = state
                             src_pos = last_src_pos
                             # NOTE: rewind src_pos back to last complete match
-                            rule_stack.append((cur_rule, rule_pos + 2, binds))
+                            block_stack.append((cur_block, block_pos + 2, binds))
                             break
                     elif is_stopping:
                         state.append(result)
                         result = state
                     else:
                         state.append(result)
-                        rule_stack.append((cur_rule, rule_pos + 1, binds))
-                        traps.append((cur_rule, rule_pos, src_pos, binds, state))
+                        block_stack.append((cur_block, block_pos + 1, binds))
+                        traps.append((cur_block, block_pos, src_pos, binds, state))
                         break
                 elif opcode is _LITERAL:
                     if result is not _ERR:
                         result = source[last_src_pos:src_pos]
-                        rule_stack.append((cur_rule, rule_pos + 2, binds))
+                        block_stack.append((cur_block, block_pos + 2, binds))
                 elif opcode is _OR:
                     # [ ..., _OR, branch1, branch2, ... ]
                     if result is _ERR:
                         # try the other branch from the same position
                         src_pos = last_src_pos
-                        rule_stack.append((cur_rule, rule_pos + 3, binds))
+                        block_stack.append((cur_block, block_pos + 2, binds))
                         break
                     else:
-                        rule_stack.append((cur_rule, rule_pos + 2, binds))
+                        # advance block_pos, do not clear error
+                        block_stack.append((cur_block, block_pos + 3, binds))
                 elif opcode is _IF:
                     # [ ..., _IF, cond1, exec1, cond2, exec2, ...]
                     if result is _ERR:
                         # try the other branch from the same position
                         src_pos = last_src_pos
-                        rule_stack.append((cur_rule, rule_pos))
+                        block_stack.append((cur_block, block_pos))
                 else:
                     assert False, "unrecognized opcode"
         if result is _ERR:
@@ -364,24 +388,30 @@ class Rule(object):
 if __name__ == "__main__":
     def chk(rule, src, result, pyglobals=None):
         p = Parser(Grammar({'test': rule}, pyglobals or {}), 'test')
-        assert p.parse(src) == result
+        r = p.parse(src)
+        assert r == result, r
+    def err_chk(rule, src, pyglobals=None):
+        p = Parser(Grammar({'test': rule}, pyglobals or {}), 'test')
+        try:
+            p.parse(src)
+            raise Exception('negative test case failed')
+        except Exception:
+            pass
     chk(['aaa'], 'aaa', 'aaa')
-    chk([_REPEAT, 'a'], 'a' * 8, ['a'] * 8)
+    chk([_REPEAT, ['a']], 'a' * 8, ['a'] * 8)
     chk([_MAYBE_REPEAT, 'a'], 'a' * 8, ['a'] * 8)
-    chk([_MAYBE_REPEAT, 'a'], '', [])
-    chk([_OR, 'a', 'b'], 'a', 'a')
-    chk([_OR, 'a', 'b'], 'b', 'b')
+    chk([_MAYBE_REPEAT, ['a']], '', [])
+    chk([_OR, ['a'], ['b']], 'a', 'a')
+    chk([_OR, ['a'], ['b']], 'b', 'b')
+    err_chk([_OR, ['a'], ['b']], 'c')
     chk([_LITERAL, _REPEAT, 'a'], 'a' * 8, 'a' * 8)
     chk([_NOT, 'a', 'b'], 'b', 'b')
     chk([_py('1')], '', 1)
     chk([_BIND, 'foo', _py('1'), _py('foo')], '', 1)
     chk([_BIND, 'foo', _py('1'), [_py('bar')], {'bar': 'foo'}], '', 1)
     chk([_NOT, _ANYTHING], '', None)
-    try:
-        chk([_NOT, _ANYTHING], 'a', None)
-        assert False, "not anything excepted non empty input"
-    except Exception:
-        pass # good
+    err_chk([_NOT, _ANYTHING], 'a')
+    chk([_OR, ['a', 'b'], ['a', 'c']], 'ac', 'c')
     # check that OR tries the options in the correct order
     chk([_OR, ['a', _BIND, 'r', _py('1')],
               [_ANYTHING, _BIND, 'r', _py('2')],
