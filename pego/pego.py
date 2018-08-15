@@ -45,7 +45,7 @@ _opc("OR", "a | b -- either match a or b")
 _opc("LITERAL", "<a> -- throw away result and return accepted input")
 _opc("ANYTHING", ". -- match a single instance of anything")
 _opc("CHECK", "?(py) check that the current result is truthy")
-
+_opc("IF", "a + b | c + d -- like OR but once a or c matches, b or d are no longer optional")
 
 # marker result objects
 _ERR = object()  # means an error is being thrown
@@ -132,6 +132,12 @@ class Parser(object):
                         result = _ERR
                     break
                 elif type(opcode) is list:
+                    # internal flow control w/in a rule; same scope
+                    rule_stack.append((cur_rule, rule_pos, binds))
+                    rule_stack.append((opcode, 0, binds))
+                elif opcode is _CALL:
+                    # TODO: working towards getting this going
+                    # with the proper ometa semantics
                     rule_pos += 1
                     argmap = cur_rule[rule_pos]
                     assert type(argmap) is dict
@@ -143,7 +149,7 @@ class Parser(object):
                     result = _CALL
                     break
                 else:
-                    assert opcode in _STACK_OPCODES
+                    assert opcode in _STACK_OPCODES, opcode
                     if opcode in (_REPEAT, _MAYBE_REPEAT):
                         state = []
                     elif opcode is _BIND:
@@ -220,10 +226,16 @@ class Parser(object):
                     if result is _ERR:
                         # try the other branch from the same position
                         src_pos = last_src_pos
-                        rule_stack.append((cur_rule, rule_pos + 2, binds))
+                        rule_stack.append((cur_rule, rule_pos + 3, binds))
                         break
                     else:
-                        rule_stack.append((cur_rule, rule_pos + 3, binds))
+                        rule_stack.append((cur_rule, rule_pos + 2, binds))
+                elif opcode is _IF:
+                    # [ ..., _IF, cond1, exec1, cond2, exec2, ...]
+                    if result is _ERR:
+                        # try the other branch from the same position
+                        src_pos = last_src_pos
+                        rule_stack.append((cur_rule, rule_pos))
                 else:
                     assert False, "unrecognized opcode"
         if result is _ERR:
@@ -370,4 +382,8 @@ if __name__ == "__main__":
         assert False, "not anything excepted non empty input"
     except Exception:
         pass # good
+    # check that OR tries the options in the correct order
+    chk([_OR, ['a', _BIND, 'r', _py('1')],
+              [_ANYTHING, _BIND, 'r', _py('2')],
+              _py('r')], 'a', 1)
     print("GOOD")
