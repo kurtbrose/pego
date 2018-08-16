@@ -104,6 +104,7 @@ class Parser(object):
         str_source = isinstance(source, basestring)
         cur_block = self.grammar.rules[self.rule_name]
         src_pos = 0  # how much of source has been parsed
+        result = None
         # evaluate, one rule at a time
         block_stack = [(cur_block, 0, {}, [])]
         # stack keeps track of matched rules, matched opcodes w/in rule
@@ -114,8 +115,7 @@ class Parser(object):
                 raise ValueError('extra input: {}'.format(repr(source[src_pos:])))
             cur_block, block_pos, binds, traps = block_stack.pop()
             assert block_pos <= len(cur_block)
-            result = None
-            print "\nEVAL", cur_block[block_pos:]
+            print "\nEVAL", cur_block[block_pos:], len(block_stack)
             # "call" down the stack
             while block_pos < len(cur_block):
                 '''
@@ -153,10 +153,12 @@ class Parser(object):
                         result = _ERR
                         break
                 elif type(opcode) is list:
+                    print "LIST", opcode
                     # internal flow control w/in a rule; same scope
                     block_stack.append((cur_block, block_pos, binds, traps))
-                    block_stack.append((opcode, 0, binds, []))
-                    break
+                    # block_pos -1 so that block_pos += 1 sets to 0
+                    cur_block, block_pos, traps = opcode, -1, []
+                    print "STACK", block_stack
                 elif opcode is _CALL:
                     # moving between rules; new scope
                     # TODO: working towards getting this going
@@ -168,9 +170,8 @@ class Parser(object):
                     for argname, argref in argmap.items():
                         args[argname] = binds[argref]
                     block_stack.append((cur_block, block_pos, binds, traps))
-                    block_stack.append((opcode, 0, args, []))
-                    result = _CALL
-                    break
+                    # block_pos -1 so that block_pos += 1 sets to 0
+                    cur_block, block_pos, binds, traps = opcode, -1, args, []
                 else:
                     assert opcode in _STACK_OPCODES, opcode
                     if opcode in (_REPEAT, _MAYBE_REPEAT):
@@ -183,8 +184,6 @@ class Parser(object):
                     if opcode is _BIND:
                         block_pos += 1  # advance 1 more since pos + 1 is bind name
                 block_pos += 1
-            if result is _CALL:
-                continue
             is_stopping = (src_pos == len(source))  # check if all source is parsed
             # "return" up the stack
             while traps:
@@ -194,12 +193,12 @@ class Parser(object):
                     # [ ..., _BIND, name, expression, ... ]
                     if result is not _ERR:
                         binds[state] = result
-                        block_stack.append((cur_block, block_pos + 3, binds))
+                        block_stack.append((cur_block, block_pos + 3, binds, traps))
                 elif opcode is _NOT:
                     if result is _ERR:
                         result = None
                         src_pos = last_src_pos
-                        block_stack.append((cur_block, block_pos + 2, binds))
+                        block_stack.append((cur_block, block_pos + 2, binds, traps))
                         break
                     else:
                         result = _ERR
@@ -207,21 +206,21 @@ class Parser(object):
                     if result is _ERR:
                         src_pos = last_src_pos
                         result = None
-                    block_stack.append((cur_block, block_pos + 2, binds))
+                    block_stack.append((cur_block, block_pos + 2, binds, traps))
                     break
                 elif opcode is _MAYBE_REPEAT:
                     if result is _ERR:
                         # NOTE: rewind src_pos back to last complete match
                         src_pos = last_src_pos
                         result = state
-                        block_stack.append((cur_block, block_pos + 2, binds))
+                        block_stack.append((cur_block, block_pos + 2, binds, traps))
                         break
                     elif is_stopping:
                         state.append(result)
                         result = state
                     else:
                         state.append(result)
-                        block_stack.append((cur_block, block_pos + 1, binds))
+                        block_stack.append((cur_block, block_pos + 1, binds, traps))
                         traps.append((cur_block, block_pos, src_pos, binds, state))
                         break
                 elif opcode is _REPEAT:
@@ -230,36 +229,36 @@ class Parser(object):
                             result = state
                             src_pos = last_src_pos
                             # NOTE: rewind src_pos back to last complete match
-                            block_stack.append((cur_block, block_pos + 2, binds))
+                            block_stack.append((cur_block, block_pos + 2, binds, traps))
                             break
                     elif is_stopping:
                         state.append(result)
                         result = state
                     else:
                         state.append(result)
-                        block_stack.append((cur_block, block_pos + 1, binds))
+                        block_stack.append((cur_block, block_pos + 1, binds, traps))
                         traps.append((cur_block, block_pos, src_pos, binds, state))
                         break
                 elif opcode is _LITERAL:
                     if result is not _ERR:
                         result = source[last_src_pos:src_pos]
-                        block_stack.append((cur_block, block_pos + 2, binds))
+                        block_stack.append((cur_block, block_pos + 2, binds, traps))
                 elif opcode is _OR:
                     # [ ..., _OR, branch1, branch2, ... ]
                     if result is _ERR:
                         # try the other branch from the same position
                         src_pos = last_src_pos
-                        block_stack.append((cur_block, block_pos + 2, binds))
+                        block_stack.append((cur_block, block_pos + 2, binds, traps))
                         break
                     else:
                         # advance block_pos, do not clear error
-                        block_stack.append((cur_block, block_pos + 3, binds))
+                        block_stack.append((cur_block, block_pos + 3, binds, traps))
                 elif opcode is _IF:
                     # [ ..., _IF, cond1, exec1, cond2, exec2, ...]
                     if result is _ERR:
                         # try the other branch from the same position
                         src_pos = last_src_pos
-                        block_stack.append((cur_block, block_pos))
+                        block_stack.append((cur_block, block_pos, binds, traps))
                 else:
                     assert False, "unrecognized opcode"
         if result is _ERR:
