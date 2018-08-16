@@ -117,12 +117,15 @@ class Parser(object):
             assert block_pos <= len(cur_block)
             print "\nEVAL", cur_block[block_pos:], len(block_stack)
             # "call" down the stack
-            while block_pos < len(cur_block):
+            while block_pos < len(cur_block) and result is not _ERR:
                 '''
-                this loop evaluates a rule "segment" -- currently a list
-                until it reaches the end; after that point, it moves to
-                the second loop which unwraps the traps set by this forward
-                evaluation
+                this is the "forward evaluation" loop -- it adds traps,
+                updates result, and may call to other blocks
+
+                there are two conditions which cause it to stop, and
+                proceed to the next "unwrapping the stack" loop:
+                1- current rule is exhausted ("return result" block exit)
+                2- current result is error ("raise exception" block exit)
                 '''
                 opcode = cur_block[block_pos]
                 print opcode,
@@ -187,6 +190,14 @@ class Parser(object):
             is_stopping = (src_pos == len(source))  # check if all source is parsed
             # "return" up the stack
             while traps:
+                '''
+                this loop is responsible for unwrapping the "try/except" traps
+                that have been set in executing the current block
+
+                an unhandled error will cause the forward evaluation loop above
+                to immediately exit, and the traps of the next block up the
+                stack will have a chance to handle the error
+                '''
                 cur_block, block_pos, last_src_pos, binds, state = traps.pop()
                 opcode = cur_block[block_pos]
                 if opcode is _BIND:
@@ -224,6 +235,7 @@ class Parser(object):
                         traps.append((cur_block, block_pos, src_pos, binds, state))
                         break
                 elif opcode is _REPEAT:
+                    print "REPEAT", result
                     if result is _ERR:
                         if len(state) > 0:
                             result = state
