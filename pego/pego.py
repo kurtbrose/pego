@@ -99,6 +99,12 @@ class Parser(object):
         if after unwinding all of the traps the result is error,
         then the traps of the next block up should also be unwound
         continuing all the way up to root
+
+
+        1- SET UP TRAPS -- THIS MAY FIND THAT IT HAS RUN OFF
+        2- EVALUATE A SINGLE VALUE
+           - MAY BE A CALL
+        3- CLEAR TRAPS -- IF A CALL, THIS IS AUTOMATICALLY NOOP
         '''
         # TODO: deterministic UTF-8 encoding of source and rules strings?
         str_source = isinstance(source, basestring)
@@ -108,7 +114,8 @@ class Parser(object):
         # evaluate, one rule at a time
         block_stack = [(cur_block, 0, {}, [])]
         # stack keeps track of matched rules, matched opcodes w/in rule
-        is_stopping = False
+        is_stopping = False  # has reached end of input
+        is_returning = False  # just finished executing a block (no more opcodes exist in current block)
         while not is_stopping:  # keep going until source parsed (or error)
             if not block_stack:
                 # TODO: cleaner error message
@@ -116,26 +123,32 @@ class Parser(object):
             cur_block, block_pos, binds, traps = block_stack.pop()
             assert block_pos <= len(cur_block)
             print "\nEVAL", cur_block[block_pos:], len(block_stack)
-            # "call" down the stack
-            while block_pos < len(cur_block) and result is not _ERR:
-                '''
-                this is the "forward evaluation" loop -- it adds traps,
-                updates result, and may call to other blocks
-
-                there are two conditions which cause it to stop, and
-                proceed to the next "unwrapping the stack" loop:
-                1- current rule is exhausted ("return result" block exit)
-                2- current result is error ("raise exception" block exit)
-                '''
+            # 1- SET UP TRAPS
+            while block_pos < len(cur_block):
                 opcode = cur_block[block_pos]
-                print opcode,
+                if opcode not in _STACK_OPCODES:
+                    break
+                if opcode in (_REPEAT, _MAYBE_REPEAT):
+                    state = []
+                elif opcode is _BIND:
+                    state = cur_block[block_pos + 1]
+                else:
+                    state = None
+                traps.append((cur_block, block_pos, src_pos, binds, state))
+                if opcode is _BIND:
+                    block_pos += 1  # advance 1 more since pos + 1 is bind name
+                block_pos + 1
+            else:
+                is_returning = True  # start returning
+            # 2- EVALUATE EXACTLY ONE TIP OPCODE THAT GENERATES A RESPONSE
+            if not is_returning:  # nothing to evaluate if returning, hit end of rule
                 if opcode is _ANYTHING:
                     if src_pos < len(source):
                         result = source[src_pos]
                         src_pos += 1
                     else:
                         result = _ERR
-                        break
+                    block_pos += 1
                 elif type(opcode) is str:  # string literal match
                     if str_source and source[src_pos:src_pos + len(opcode)] == opcode:
                         result = opcode
@@ -147,14 +160,14 @@ class Parser(object):
                         src_pos += 1
                     else:
                         result = _ERR
-                        break
+                    block_pos += 1
                 elif type(opcode) is types.CodeType:  # eval python expression
                     try:
                         result = eval(opcode, self.grammar.pyglobals, binds)
                     except Exception as e:
                         import traceback; traceback.print_exc()
                         result = _ERR
-                        break
+                    block_pos += 1
                 elif type(opcode) is list:
                     print "LIST", opcode
                     # internal flow control w/in a rule; same scope
@@ -175,104 +188,108 @@ class Parser(object):
                     block_stack.append((cur_block, block_pos, binds, traps))
                     # block_pos -1 so that block_pos += 1 sets to 0
                     cur_block, block_pos, binds, traps = opcode, -1, args, []
-                else:
-                    assert opcode in _STACK_OPCODES, opcode
-                    if opcode in (_REPEAT, _MAYBE_REPEAT):
-                        state = []
-                    elif opcode is _BIND:
-                        state = cur_block[block_pos + 1]
-                    else:
-                        state = None
-                    traps.append((cur_block, block_pos, src_pos, binds, state))
-                    if opcode is _BIND:
-                        block_pos += 1  # advance 1 more since pos + 1 is bind name
-                block_pos += 1
+
+            # 3- UNWRAP TRAPS
             is_stopping = (src_pos == len(source))  # check if all source is parsed
             # "return" up the stack
-            while traps:
+            print "TRAPS", 
+            do = True  # do-while loop
+            while do or block_pos == len(cur_block):
                 '''
-                this loop is responsible for unwrapping the "try/except" traps
-                that have been set in executing the current block
-
-                an unhandled error will cause the forward evaluation loop above
-                to immediately exit, and the traps of the next block up the
-                stack will have a chance to handle the error
+                unwrap once to handle the value returned by the evaluation above,
+                then continue unwrapping as long as the current block has reached its end
                 '''
-                cur_block, block_pos, last_src_pos, binds, state = traps.pop()
-                opcode = cur_block[block_pos]
-                if opcode is _BIND:
-                    # [ ..., _BIND, name, expression, ... ]
-                    if result is not _ERR:
-                        binds[state] = result
-                        block_stack.append((cur_block, block_pos + 3, binds, traps))
-                elif opcode is _NOT:
-                    if result is _ERR:
-                        result = None
-                        src_pos = last_src_pos
-                        block_stack.append((cur_block, block_pos + 2, binds, traps))
-                        break
-                    else:
-                        result = _ERR
-                elif opcode is _MAYBE:
-                    if result is _ERR:
-                        src_pos = last_src_pos
-                        result = None
-                    block_stack.append((cur_block, block_pos + 2, binds, traps))
-                    break
-                elif opcode is _MAYBE_REPEAT:
-                    if result is _ERR:
-                        # NOTE: rewind src_pos back to last complete match
-                        src_pos = last_src_pos
-                        result = state
-                        block_stack.append((cur_block, block_pos + 2, binds, traps))
-                        break
-                    elif is_stopping:
-                        state.append(result)
-                        result = state
-                    else:
-                        state.append(result)
-                        block_stack.append((cur_block, block_pos + 1, binds, traps))
-                        traps.append((cur_block, block_pos, src_pos, binds, state))
-                        break
-                elif opcode is _REPEAT:
-                    print "REPEAT", result
-                    if result is _ERR:
-                        if len(state) > 0:
-                            result = state
+                do = False
+                while traps:
+                    '''
+                    this loop is responsible for unwrapping the "try/except" traps
+                    that have been set in executing the current block
+                    '''
+                    cur_block, block_pos, last_src_pos, binds, state = traps.pop()
+                    opcode = cur_block[block_pos]
+                    if opcode is _BIND:
+                        # [ ..., _BIND, name, expression, ... ]
+                        if result is not _ERR:
+                            binds[state] = result
+                            # TODO: update all of these block_stack.append() calls to
+                            # instead simply update the variables
+                            block_stack.append((cur_block, block_pos + 3, binds, traps))
+                    elif opcode is _NOT:
+                        if result is _ERR:
+                            result = None
                             src_pos = last_src_pos
-                            # NOTE: rewind src_pos back to last complete match
                             block_stack.append((cur_block, block_pos + 2, binds, traps))
                             break
-                    elif is_stopping:
-                        state.append(result)
-                        result = state
-                    else:
-                        state.append(result)
-                        block_stack.append((cur_block, block_pos + 1, binds, traps))
-                        traps.append((cur_block, block_pos, src_pos, binds, state))
-                        break
-                elif opcode is _LITERAL:
-                    if result is not _ERR:
-                        result = source[last_src_pos:src_pos]
-                        block_stack.append((cur_block, block_pos + 2, binds, traps))
-                elif opcode is _OR:
-                    # [ ..., _OR, branch1, branch2, ... ]
-                    if result is _ERR:
-                        # try the other branch from the same position
-                        src_pos = last_src_pos
+                        else:
+                            result = _ERR
+                    elif opcode is _MAYBE:
+                        if result is _ERR:
+                            src_pos = last_src_pos
+                            result = None
                         block_stack.append((cur_block, block_pos + 2, binds, traps))
                         break
+                    elif opcode is _MAYBE_REPEAT:
+                        if result is _ERR:
+                            # NOTE: rewind src_pos back to last complete match
+                            src_pos = last_src_pos
+                            result = state
+                            block_stack.append((cur_block, block_pos + 2, binds, traps))
+                            break
+                        elif is_stopping:
+                            state.append(result)
+                            result = state
+                        else:
+                            state.append(result)
+                            block_stack.append((cur_block, block_pos + 1, binds, traps))
+                            traps.append((cur_block, block_pos, src_pos, binds, state))
+                            break
+                    elif opcode is _REPEAT:
+                        print "REPEAT", result
+                        if result is _ERR:
+                            if len(state) > 0:
+                                result = state
+                                src_pos = last_src_pos
+                                # NOTE: rewind src_pos back to last complete match
+                                block_stack.append((cur_block, block_pos + 2, binds, traps))
+                                break
+                        elif is_stopping:
+                            state.append(result)
+                            result = state
+                        else:
+                            state.append(result)
+                            block_stack.append((cur_block, block_pos + 1, binds, traps))
+                            traps.append((cur_block, block_pos, src_pos, binds, state))
+                            break
+                    elif opcode is _LITERAL:
+                        if result is not _ERR:
+                            result = source[last_src_pos:src_pos]
+                            block_stack.append((cur_block, block_pos + 2, binds, traps))
+                    elif opcode is _OR:
+                        # [ ..., _OR, branch1, branch2, ... ]
+                        if result is _ERR:
+                            # try the other branch from the same position
+                            src_pos = last_src_pos
+                            block_stack.append((cur_block, block_pos + 2, binds, traps))
+                            break
+                        else:
+                            # advance block_pos, do not clear error
+                            block_stack.append((cur_block, block_pos + 3, binds, traps))
+                    elif opcode is _IF:
+                        # [ ..., _IF, cond1, exec1, cond2, exec2, ...]
+                        if result is _ERR:
+                            # try the other branch from the same position
+                            src_pos = last_src_pos
+                            block_stack.append((cur_block, block_pos, binds, traps))
                     else:
-                        # advance block_pos, do not clear error
-                        block_stack.append((cur_block, block_pos + 3, binds, traps))
-                elif opcode is _IF:
-                    # [ ..., _IF, cond1, exec1, cond2, exec2, ...]
-                    if result is _ERR:
-                        # try the other branch from the same position
-                        src_pos = last_src_pos
-                        block_stack.append((cur_block, block_pos, binds, traps))
+                        assert False, "unrecognized trap opcode"
                 else:
-                    assert False, "unrecognized opcode"
+                    # fully unwrapped current traps without any instructions to resume execution
+                    # iterate to the next step: either (1) advance cur_pos, or (2) pop the stack
+                    if block_pos < len(cur_block):
+                        block_pos += 1  # TODO: if this advances to end, don't start unwrapping yet
+                        # maybe a sentinel value result?
+                    else:
+                        cur_block, block_pos, binds, traps = block_stack.pop()
         if result is _ERR:
             raise Exception('oh no!')  # raise a super-good exception
         return result
