@@ -136,7 +136,7 @@ class Parser(object):
                     state = cur_block[block_pos + 1]
                 else:
                     state = None
-                traps.append((opcode, src_pos, state))
+                traps.append((opcode, block_pos, src_pos, state))
                 if opcode is _BIND:
                     block_pos += 1  # advance 1 more since pos + 1 is bind name
                 block_pos += 1
@@ -210,7 +210,7 @@ class Parser(object):
                     this loop is responsible for unwrapping the "try/except" traps
                     that have been set in executing the current block
                     '''
-                    trapcode, last_src_pos, state = traps.pop()
+                    trapcode, trap_pos, last_src_pos, state = traps.pop()
                     if trapcode is _BIND:
                         # [ ..., _BIND, name, expression, ... ]
                         if result is not _ERR:
@@ -238,7 +238,8 @@ class Parser(object):
                             result = state
                         else:
                             state.append(result)
-                            traps.append((trapcode, src_pos, state))
+                            traps.append((trapcode, trap_pos, src_pos, state))
+                            block_pos = trap_pos + 1  # rewind block_pos to replay
                             break
                     elif trapcode is _REPEAT:
                         print "REPEAT", result
@@ -253,7 +254,8 @@ class Parser(object):
                             result = state
                         else:
                             state.append(result)
-                            traps.append((trapcode, src_pos, state))
+                            traps.append((trapcode, trap_pos, src_pos, state))
+                            block_pos = trap_pos + 1  # rewind block_pos to replay
                             break
                     elif trapcode is _LITERAL:
                         if result is not _ERR:
@@ -266,6 +268,10 @@ class Parser(object):
                             #  longer on the stack so next error will not be caught)
                             src_pos = last_src_pos
                             break
+                        else:
+                            # if first branch worked, increment block_pos
+                            # to skip over second branch
+                            block_pos += 1
                     elif trapcode is _IF:
                         # [ ..., _IF, cond1, exec1, cond2, exec2, ...]
                         if result is _ERR:
