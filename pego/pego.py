@@ -120,11 +120,12 @@ class Parser(object):
         # evaluate, one rule at a time
         block_stack = []  # stack to push state onto when evaluating a sub-block/rule
         # stack keeps track of matched rules, matched opcodes w/in rule
-        is_stopping = False  # has reached end of input
+        is_stopping = False  # has reached end of input 
+        done = False  
         is_returning = False  # finished executing a block or value; unwrapping traps
-        while not is_stopping:  # keep going until source parsed (or error)
+        # is_returning could also be named "result is valid"
+        while not done:
             assert block_pos <= len(cur_block)
-            print "\nEVAL", cur_block[block_pos:], len(block_stack)
             # 1- SET UP TRAPS
             while block_pos < len(cur_block):
                 opcode = cur_block[block_pos]
@@ -154,30 +155,31 @@ class Parser(object):
                     src_pos += 1
                 else:
                     result = _ERR
+                is_returning = True
             elif type(opcode) is str:  # string literal match
                 if str_source and source[src_pos:src_pos + len(opcode)] == opcode:
                     result = opcode
                     src_pos += len(opcode)
-                    print "MATCHED", opcode
                 elif not str_source and source[src_pos] == opcode:
                     # sequence matching
                     result = opcode
                     src_pos += 1
                 else:
                     result = _ERR
+                is_returning = True
             elif type(opcode) is types.CodeType:  # eval python expression
                 try:
                     result = eval(opcode, self.grammar.pyglobals, binds)
                 except Exception as e:
                     import traceback; traceback.print_exc()
                     result = _ERR
+                is_returning = True
             elif type(opcode) is list:
-                print "LIST", opcode
                 # internal flow control w/in a rule; same scope
                 block_stack.append((cur_block, block_pos + 1, binds, traps))
                 # set block_pos to -1 so increment will put it to 0
                 cur_block, block_pos, traps = opcode, -1, []
-                print "STACK", block_stack
+                is_returning = False  # no value to return, need to eval child block
             elif opcode is _CALL:
                 # moving between rules; new scope
                 # TODO: working towards getting this going
@@ -193,13 +195,11 @@ class Parser(object):
                 # block_pos -1 so that block_pos += 1 sets to 0
                 cur_block, block_pos, binds, traps = opcode, -1, args, []
                 '''
+            print "RESULT", opcode, block_pos, result, is_returning
             block_pos += 1
 
             # 3- UNWRAP TRAPS
             is_stopping = (src_pos == len(source))  # check if all source is parsed
-            # "return" up the stack
-            print "TRAPS", 
-            is_returning = True  # EVALUATE section above guarantees at least one value to unwrap
             while is_returning:
                 '''
                 unwrap once to handle the value returned by the evaluation above,
@@ -242,7 +242,6 @@ class Parser(object):
                             block_pos = trap_pos + 1  # rewind block_pos to replay
                             break
                     elif trapcode is _REPEAT:
-                        print "REPEAT", result
                         if result is _ERR:
                             if len(state) > 0:
                                 result = state
@@ -283,11 +282,14 @@ class Parser(object):
                 # iterate to the next step: either (1) advance cur_pos, or (2) pop the stack
                 is_returning = (block_pos == len(cur_block))
                 if is_returning:
+                    print "RETURNED", result
                     if not block_stack:
-                        break
+                        if is_stopping:
+                            done = True
+                            break  # GOOD, end of rules, end of input
+                        else:
+                            raise ValueError("extra input: {}".format(repr(source[src_pos:])))
                     cur_block, block_pos, binds, traps = block_stack.pop()
-        if src_pos != len(source):
-            raise ValueError("extra input: {}".format(repr(source)))
         if result is _ERR:
             raise Exception('oh no!')  # raise a super-good exception
         return result
