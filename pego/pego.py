@@ -45,7 +45,12 @@ _opc("OR", "a | b -- either match a or b")
 _opc("LITERAL", "<a> -- throw away result and return accepted input")
 _opc("ANYTHING", ". -- match a single instance of anything")
 _opc("CHECK", "?(py) check that the current result is truthy")
-_opc("IF", "a b -- if condition a passes, apply b; else error")
+_opc("IF", "cond then SKIP else ... -- cond passes -> then; cond error -> else")
+_opc("SKIP", "a b -- skip a and go straight to b")
+# SKIP is needed for IF -- it allows then-branch to "jump over" else branch
+# in case cond was true, without throwing away the result of then-branch
+# (that is, and trap-codes "above" the IF should see the result of the
+# then-branch as its result)
 
 # marker result objects
 _ERR = object()  # means an error is being thrown
@@ -272,10 +277,14 @@ class Parser(object):
                             # to skip over second branch
                             block_pos += 1
                     elif trapcode is _IF:
-                        # [ ..., _IF, cond1, exec1, cond2, exec2, ...]
-                        if result is _ERR:
-                            # try the other branch from the same position
-                            src_pos = last_src_pos
+                        # [ ..., _IF, cond, then, SKIP, else, ...]
+                        assert cur_block[trap_pos + 3] is _SKIP
+                        if result is _ERR:  # cond failed
+                            src_pos = last_src_pos  # restore src_pos
+                            cur_pos = trap_pos + 4  # go to else branch
+                    elif trapcode is _SKIP:
+                        # [ ..., SKIP, a, b, ...]  immediately jump to b
+                        cur_pos = trap_pos + 2
                     else:
                         assert False, "unrecognized trap opcode"
                 # fully unwrapped current traps without any instructions to resume execution
@@ -449,4 +458,7 @@ if __name__ == "__main__":
     chk([_OR, ['a', _BIND, 'r', _py('1')],
               [_ANYTHING, _BIND, 'r', _py('2')],
               _py('r')], 'a', 1)
+    # basic check of IF (building towards RULE calls)
+    chk([_IF, 'a', 'b', _SKIP, 'c', 'd'], 'abd', 'd')
+    chk([_IF, 'a', 'b', _SKIP, 'c', 'd'], 'cd', 'd')
     print("GOOD")
