@@ -123,9 +123,6 @@ class Parser(object):
         is_stopping = False  # has reached end of input
         is_returning = False  # finished executing a block or value; unwrapping traps
         while not is_stopping:  # keep going until source parsed (or error)
-            if not block_stack:
-                # TODO: cleaner error message
-                raise ValueError('extra input: {}'.format(repr(source[src_pos:])))
             assert block_pos <= len(cur_block)
             print "\nEVAL", cur_block[block_pos:], len(block_stack)
             # 1- SET UP TRAPS
@@ -139,14 +136,14 @@ class Parser(object):
                     state = cur_block[block_pos + 1]
                 else:
                     state = None
-                traps.append((src_pos, state))
+                traps.append((opcode, src_pos, state))
                 if opcode is _BIND:
                     block_pos += 1  # advance 1 more since pos + 1 is bind name
                 block_pos + 1
             else:
                 # TODO: better exception / forward detection
                 raise Exception("traps opcodes up to end of block (no value to wrap)")
-            # 2- EVALUATE EXACTLY ONE TIP OPCODE THAT GENERATES A RESPONSE
+            # 2- EVALUATE EXACTLY ONE TIP OPCODE THAT GENERATES A RESULT
             # does not advance block_pos -- leaves it pointed at this opcode
             # relies on traps unwrapping code below to advance the block_pos
             if opcode is _ANYTHING:
@@ -209,25 +206,24 @@ class Parser(object):
                     this loop is responsible for unwrapping the "try/except" traps
                     that have been set in executing the current block
                     '''
-                    last_src_pos, state = traps.pop()
-                    opcode = cur_block[block_pos]
-                    if opcode is _BIND:
+                    trapcode, last_src_pos, state = traps.pop()
+                    if trapcode is _BIND:
                         # [ ..., _BIND, name, expression, ... ]
                         if result is not _ERR:
                             binds[state] = result
-                    elif opcode is _NOT:
+                    elif trapcode is _NOT:
                         if result is _ERR:
                             result = None
                             src_pos = last_src_pos
                             break
                         else:
                             result = _ERR
-                    elif opcode is _MAYBE:
+                    elif trapcode is _MAYBE:
                         if result is _ERR:
                             src_pos = last_src_pos
                             result = None
                         break
-                    elif opcode is _MAYBE_REPEAT:
+                    elif trapcode is _MAYBE_REPEAT:
                         if result is _ERR:
                             # NOTE: rewind src_pos back to last complete match
                             src_pos = last_src_pos
@@ -240,7 +236,7 @@ class Parser(object):
                             state.append(result)
                             traps.append((src_pos, state))
                             break
-                    elif opcode is _REPEAT:
+                    elif trapcode is _REPEAT:
                         print "REPEAT", result
                         if result is _ERR:
                             if len(state) > 0:
@@ -255,18 +251,18 @@ class Parser(object):
                             state.append(result)
                             traps.append((src_pos, state))
                             break
-                    elif opcode is _LITERAL:
+                    elif trapcode is _LITERAL:
                         if result is not _ERR:
                             result = source[last_src_pos:src_pos]
-                    elif opcode is _OR:
+                    elif trapcode is _OR:
                         # [ ..., _OR, branch1, branch2, ... ]
                         if result is _ERR:
                             # try the other branch from the same position
-                            # (NOTE: block_pos will advance, but OR is no 
+                            # (NOTE: block_pos will advance, but OR is no
                             #  longer on the stack so next error will not be caught)
                             src_pos = last_src_pos
                             break
-                    elif opcode is _IF:
+                    elif trapcode is _IF:
                         # [ ..., _IF, cond1, exec1, cond2, exec2, ...]
                         if result is _ERR:
                             # try the other branch from the same position
@@ -279,8 +275,12 @@ class Parser(object):
                     block_pos += 1
                     is_returning = False  # more to execute in this block
                 else:
+                    if not block_stack:
+                        break
                     cur_block, block_pos, binds, traps = block_stack.pop()
                     is_returning = True  # just came back from a sub-block, continue unwrapping traps
+        if src_pos != len(source):
+            raise ValueError("extra input: {}".format(repr(source)))
         if result is _ERR:
             raise Exception('oh no!')  # raise a super-good exception
         return result
