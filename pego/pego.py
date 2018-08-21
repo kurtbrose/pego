@@ -234,7 +234,7 @@ class Parser(object):
                             result = state
                         else:
                             state.append(result)
-                            traps.append((src_pos, state))
+                            traps.append((trapcode, src_pos, state))
                             break
                     elif trapcode is _REPEAT:
                         print "REPEAT", result
@@ -249,7 +249,7 @@ class Parser(object):
                             result = state
                         else:
                             state.append(result)
-                            traps.append((src_pos, state))
+                            traps.append((trapcode, src_pos, state))
                             break
                     elif trapcode is _LITERAL:
                         if result is not _ERR:
