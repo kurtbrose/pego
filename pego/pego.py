@@ -195,7 +195,7 @@ class Parser(object):
                 # block_pos -1 so that block_pos += 1 sets to 0
                 cur_block, block_pos, binds, traps = opcode, -1, args, []
                 '''
-            print "RESULT", opcode, block_pos, result, is_returning
+            # print "RESULT", opcode, block_pos, result, is_returning
             block_pos += 1
 
             # 3- UNWRAP TRAPS
@@ -282,7 +282,7 @@ class Parser(object):
                 # iterate to the next step: either (1) advance cur_pos, or (2) pop the stack
                 is_returning = (block_pos == len(cur_block))
                 if is_returning:
-                    print "RETURNED", result
+                    # print "RETURNED", result
                     if not block_stack:
                         if is_stopping:
                             done = True
