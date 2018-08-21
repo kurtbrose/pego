@@ -139,7 +139,7 @@ class Parser(object):
                 traps.append((opcode, src_pos, state))
                 if opcode is _BIND:
                     block_pos += 1  # advance 1 more since pos + 1 is bind name
-                block_pos + 1
+                block_pos += 1
             # NOTE: can't tell the difference between traps up to end of block,
             #       versus no more opcodes left
             #else:
@@ -421,6 +421,7 @@ if __name__ == "__main__":
     chk(['aaa'], 'aaa', 'aaa')
     chk([['aaa']], 'aaa', 'aaa')
     chk([[['aaa']]], 'aaa', 'aaa')
+    chk([_REPEAT, 'a'], 'a' * 8, ['a'] * 8)
     chk([_REPEAT, ['a']], 'a' * 8, ['a'] * 8)
     chk([_MAYBE_REPEAT, 'a'], 'a' * 8, ['a'] * 8)
     chk([_MAYBE_REPEAT, ['a']], '', [])
