@@ -174,8 +174,9 @@ class Parser(object):
             elif type(opcode) is list:
                 print "LIST", opcode
                 # internal flow control w/in a rule; same scope
-                block_stack.append((cur_block, block_pos, binds, traps))
-                cur_block, block_pos, traps = opcode, 0, []
+                block_stack.append((cur_block, block_pos + 1, binds, traps))
+                # set block_pos to -1 so increment will put it to 0
+                cur_block, block_pos, traps = opcode, -1, []
                 print "STACK", block_stack
             elif opcode is _CALL:
                 # moving between rules; new scope
@@ -192,6 +193,7 @@ class Parser(object):
                 # block_pos -1 so that block_pos += 1 sets to 0
                 cur_block, block_pos, binds, traps = opcode, -1, args, []
                 '''
+            block_pos += 1
 
             # 3- UNWRAP TRAPS
             is_stopping = (src_pos == len(source))  # check if all source is parsed
@@ -278,7 +280,6 @@ class Parser(object):
                     if not block_stack:
                         break
                     cur_block, block_pos, binds, traps = block_stack.pop()
-                block_pos += 1
         if src_pos != len(source):
             raise ValueError("extra input: {}".format(repr(source)))
         if result is _ERR:
@@ -409,6 +410,7 @@ if __name__ == "__main__":
         p = Parser(Grammar({'test': rule}, pyglobals or {}), 'test')
         r = p.parse(src)
         assert r == result, r
+        print rule, src, r, "GOOD"
     def err_chk(rule, src, pyglobals=None):
         p = Parser(Grammar({'test': rule}, pyglobals or {}), 'test')
         try:
