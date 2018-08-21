@@ -140,9 +140,11 @@ class Parser(object):
                 if opcode is _BIND:
                     block_pos += 1  # advance 1 more since pos + 1 is bind name
                 block_pos + 1
-            else:
-                # TODO: better exception / forward detection
-                raise Exception("traps opcodes up to end of block (no value to wrap)")
+            # NOTE: can't tell the difference between traps up to end of block,
+            #       versus no more opcodes left
+            #else:
+            #    # TODO: better exception / forward detection
+            #    raise Exception("traps opcodes up to end of block (no value to wrap)")
             # 2- EVALUATE EXACTLY ONE TIP OPCODE THAT GENERATES A RESULT
             # does not advance block_pos -- leaves it pointed at this opcode
             # relies on traps unwrapping code below to advance the block_pos
@@ -271,14 +273,12 @@ class Parser(object):
                         assert False, "unrecognized trap opcode"
                 # fully unwrapped current traps without any instructions to resume execution
                 # iterate to the next step: either (1) advance cur_pos, or (2) pop the stack
-                if block_pos < len(cur_block):
-                    block_pos += 1
-                    is_returning = False  # more to execute in this block
-                else:
+                is_returning = (block_pos == len(cur_block))
+                if is_returning:
                     if not block_stack:
                         break
                     cur_block, block_pos, binds, traps = block_stack.pop()
-                    is_returning = True  # just came back from a sub-block, continue unwrapping traps
+                block_pos += 1
         if src_pos != len(source):
             raise ValueError("extra input: {}".format(repr(source)))
         if result is _ERR:
@@ -417,6 +417,8 @@ if __name__ == "__main__":
         except Exception:
             pass
     chk(['aaa'], 'aaa', 'aaa')
+    chk([['aaa']], 'aaa', 'aaa')
+    chk([[['aaa']]], 'aaa', 'aaa')
     chk([_REPEAT, ['a']], 'a' * 8, ['a'] * 8)
     chk([_MAYBE_REPEAT, 'a'], 'a' * 8, ['a'] * 8)
     chk([_MAYBE_REPEAT, ['a']], '', [])
