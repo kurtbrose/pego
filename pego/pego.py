@@ -426,8 +426,10 @@ if __name__ == "__main__":
     chk([[['aaa']]], 'aaa', 'aaa')
     chk([_REPEAT, 'a'], 'a' * 8, ['a'] * 8)
     chk([_REPEAT, ['a']], 'a' * 8, ['a'] * 8)
+    err_chk([_REPEAT, 'a', _REPEAT, 'b'], 'bbb')  # repeat requires at least one 'a'
     chk([_MAYBE_REPEAT, 'a'], 'a' * 8, ['a'] * 8)
     chk([_MAYBE_REPEAT, ['a']], '', [])
+    chk([_MAYBE_REPEAT, 'a', _REPEAT, 'b'], 'bbb', ['b'] * 3)  # maybe repeat is okay with 0 a's
     chk([_OR, ['a'], ['b']], 'a', 'a')
     chk([_OR, ['a'], ['b']], 'b', 'b')
     err_chk([_OR, ['a'], ['b']], 'c')
