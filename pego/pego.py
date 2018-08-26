@@ -433,9 +433,14 @@ if __name__ == "__main__":
     chk([_OR, ['a'], ['b']], 'a', 'a')
     chk([_OR, ['a'], ['b']], 'b', 'b')
     err_chk([_OR, ['a'], ['b']], 'c')
+    chk([_OR, 'a', 'b', 'c'], 'ac', 'c')
+    chk([_OR, 'a', 'b', 'c'], 'bc', 'c')
+    # chk([_OR, [_BIND, 'first', 'a', 'bad'], [_BIND, 'second', 'a', 'good'], _py('first')], 'agood', 'a')
+    # TODO: this should fail once _BIND to 'first' is properly unwound
     chk([_LITERAL, _REPEAT, 'a'], 'a' * 8, 'a' * 8)
     chk([_NOT, 'a', 'b'], 'b', 'b')
     chk([_py('1')], '', 1)
+    # err_chk([_py('undefined')], '')  # TODO: dont swallow undefined errors
     chk([_BIND, 'foo', _py('1'), _py('foo')], '', 1)
     # chk([_BIND, 'foo', _py('1'), [_py('bar')], {'bar': 'foo'}], '', 1)
     # TODO: fix this test to conform to correct rule calls once I figure out what that looks like....
