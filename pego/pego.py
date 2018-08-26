@@ -79,6 +79,49 @@ class Grammar(object):
         return cls(AST_GRAMMAR.parse(text), pyglobals=pyglobals or {})
 
 
+_opc("NO_SCOPE_VAL", "marker for no value bound to name")
+
+
+class _LinearizedScope(object):
+    '''
+    A scope that can bind values to names, which also
+    keeps track of the position at which the variables
+    were bound, allowing it to rewind back to an earlier state
+    '''
+    def __init__(self):
+        self.name_val_map = {}
+        self.name_oldval_pos_list = []
+
+    def set(self, name, val, cur_pos):
+        '''
+        set name to val, report current position in case
+        later rewind
+        '''
+        self.name_oldval_pos_list.append(name)
+        self.name_oldval_pos_list.append(self.name_val_map.get(name, _NO_SCOPE_VAL))
+        self.name_oldval_pos_list.append(cur_pos)
+        self.name_val_map[name] = val
+
+    def get(self, name):
+        '''
+        get the last value bound to name
+        '''
+        return self.name_val_map[name][-1]
+
+    def rewind(self, pos):
+        '''
+        undo all assignments that came after pos
+        '''
+        while self.name_pos_list and self.name_pos_list[-1] > pos:
+            self.name_pos_list.pop()  # done with pos
+            oldval = self.name_oldval_pos_list.pop()
+            name = self.name_pos_list.pop()
+            if oldval is _NO_SCOPE_VAL:
+                del self.name_val_map[name]
+            else:
+                self.name_val_map[name] = oldval
+
+
 class Parser(object):
     '''Python Parser -- compile one of these to build a parser'''
     def __init__(self, grammar, rule_name):
@@ -118,7 +161,7 @@ class Parser(object):
         str_source = isinstance(source, basestring)
         cur_block = self.grammar.rules[self.rule_name]
         block_pos = 0  # opcode index of current block
-        binds = {}  # "locals" -- bound names w/in current rule scope
+        binds = _LinearizedScope()  # "locals" -- bound names w/in current rule scope
         traps = []  # "try/except" or context management blocks that will be unwrapped in order
         src_pos = 0  # how much of source has been parsed
         result = None
@@ -174,7 +217,7 @@ class Parser(object):
                 is_returning = True
             elif type(opcode) is types.CodeType:  # eval python expression
                 try:
-                    result = eval(opcode, self.grammar.pyglobals, binds)
+                    result = eval(opcode, self.grammar.pyglobals, binds.name_val_map)
                 except Exception as e:
                     import traceback; traceback.print_exc()
                     result = _ERR
@@ -219,7 +262,7 @@ class Parser(object):
                     if trapcode is _BIND:
                         # [ ..., _BIND, name, expression, ... ]
                         if result is not _ERR:
-                            binds[state] = result
+                            binds.set(state, result, block_pos)
                     elif trapcode is _NOT:
                         if result is _ERR:
                             result = None
