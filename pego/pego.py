@@ -232,23 +232,9 @@ class Parser(object):
                             src_pos = last_src_pos
                             result = None
                         break
-                    elif trapcode is _MAYBE_REPEAT:
+                    elif trapcode in (_REPEAT, _MAYBE_REPEAT):
                         if result is _ERR:
-                            # NOTE: rewind src_pos back to last complete match
-                            src_pos = last_src_pos
-                            result = state
-                            break
-                        elif is_stopping:
-                            state.append(result)
-                            result = state
-                        else:
-                            state.append(result)
-                            traps.append((trapcode, trap_pos, src_pos, state))
-                            block_pos = trap_pos + 1  # rewind block_pos to replay
-                            break
-                    elif trapcode is _REPEAT:
-                        if result is _ERR:
-                            if len(state) > 0:
+                            if len(state) > 0 or trapcode is _MAYBE_REPEAT:
                                 result = state
                                 src_pos = last_src_pos
                                 # NOTE: rewind src_pos back to last complete match
