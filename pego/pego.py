@@ -92,14 +92,14 @@ class _LinearizedScope(object):
         self.name_val_map = {}
         self.name_oldval_pos_list = []
 
-    def set(self, name, val, cur_pos):
+    def set(self, name, val, src_pos):
         '''
         set name to val, report current position in case
         later rewind
         '''
         self.name_oldval_pos_list.append(name)
         self.name_oldval_pos_list.append(self.name_val_map.get(name, _NO_SCOPE_VAL))
-        self.name_oldval_pos_list.append(cur_pos)
+        self.name_oldval_pos_list.append(src_pos)
         self.name_val_map[name] = val
 
     def get(self, name):
@@ -108,14 +108,14 @@ class _LinearizedScope(object):
         '''
         return self.name_val_map[name][-1]
 
-    def rewind(self, pos):
+    def rewind(self, src_pos):
         '''
-        undo all assignments that came after pos
+        undo all assignments that came after src_pos
         '''
-        while self.name_pos_list and self.name_pos_list[-1] > pos:
-            self.name_pos_list.pop()  # done with pos
+        while self.name_oldval_pos_list and self.name_oldval_pos_list[-1] > src_pos:
+            self.name_oldval_pos_list.pop()  # done with src_pos
             oldval = self.name_oldval_pos_list.pop()
-            name = self.name_pos_list.pop()
+            name = self.name_oldval_pos_list.pop()
             if oldval is _NO_SCOPE_VAL:
                 del self.name_val_map[name]
             else:
@@ -262,7 +262,7 @@ class Parser(object):
                     if trapcode is _BIND:
                         # [ ..., _BIND, name, expression, ... ]
                         if result is not _ERR:
-                            binds.set(state, result, block_pos)
+                            binds.set(state, result, src_pos)
                     elif trapcode is _NOT:
                         if result is _ERR:
                             result = None
@@ -316,6 +316,7 @@ class Parser(object):
                         cur_pos = trap_pos + 2
                     else:
                         assert False, "unrecognized trap opcode"
+                binds.rewind(src_pos)  # throw away any bindings that we have rewound back off of
                 # fully unwrapped current traps without any instructions to resume execution
                 # iterate to the next step: either (1) advance cur_pos, or (2) pop the stack
                 is_returning = (block_pos == len(cur_block))
@@ -478,8 +479,8 @@ if __name__ == "__main__":
     err_chk([_OR, ['a'], ['b']], 'c')
     chk([_OR, 'a', 'b', 'c'], 'ac', 'c')
     chk([_OR, 'a', 'b', 'c'], 'bc', 'c')
-    # chk([_OR, [_BIND, 'first', 'a', 'bad'], [_BIND, 'second', 'a', 'good'], _py('first')], 'agood', 'a')
-    # TODO: this should fail once _BIND to 'first' is properly unwound
+    err_chk([_OR, [_BIND, 'first', 'a', 'bad'], [_BIND, 'second', 'a', 'good'], _py('first')], 'agood', 'a')
+    # check that _BIND to 'first' is properly unwound
     chk([_LITERAL, _REPEAT, 'a'], 'a' * 8, 'a' * 8)
     chk([_NOT, 'a', 'b'], 'b', 'b')
     chk([_py('1')], '', 1)
