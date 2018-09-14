@@ -51,14 +51,18 @@ _opc("SKIP", "a b -- skip a and go straight to b")
 # in case cond was true, without throwing away the result of then-branch
 # (that is, and trap-codes "above" the IF should see the result of the
 # then-branch as its result)
+_opc("SRC_POP", "pops a source off the source-stack after next opcode returns")
+_opc("CALL", "call another rule")
 
-# marker result objects
-_ERR = object()  # means an error is being thrown
-_CALL = object()  # means result is TBD from next rule
+
+class Marker(Opcode): pass
+
+
+_ERR = Marker("ERR", "means an error is being thrown")
 
 
 _STACK_OPCODES = (
-    _NOT, _MAYBE, _REPEAT, _MAYBE_REPEAT, _LITERAL, _OR, _BIND)
+    _NOT, _MAYBE, _REPEAT, _MAYBE_REPEAT, _LITERAL, _OR, _BIND, _IF)
 
 
 class Grammar(object):
@@ -167,8 +171,9 @@ class Parser(object):
         result = None
         # evaluate, one rule at a time
         block_stack = []  # stack to push state onto when evaluating a sub-block/rule
+        source_stack = []  # stack to push current src + pos onto
         # stack keeps track of matched rules, matched opcodes w/in rule
-        is_stopping = False  # has reached end of input 
+        end_of_input = (src_pos == len(source))
         done = False  
         is_returning = False  # finished executing a block or value; unwrapping traps
         # is_returning could also be named "result is valid"
@@ -228,26 +233,35 @@ class Parser(object):
                 # set block_pos to -1 so increment will put it to 0
                 cur_block, block_pos, traps = opcode, -1, []
                 is_returning = False  # no value to return, need to eval child block
-            elif opcode is _CALL:
-                # moving between rules; new scope
-                # TODO: working towards getting this going
-                # with the proper ometa semantics
-                '''
-                block_pos += 1
-                argmap = cur_block[block_pos]
-                assert type(argmap) is dict
-                args = {}
-                for argname, argref in argmap.items():
-                    args[argname] = binds[argref]
-                block_stack.append((cur_block, block_pos, binds, traps))
-                # block_pos -1 so that block_pos += 1 sets to 0
-                cur_block, block_pos, binds, traps = opcode, -1, args, []
-                '''
+            elif opcode is _CALL:  # calling another rule
+                # [ ..., _CALL, [list-of-arg-names], [target-rule], ...]
+                # 0- push the current source + pos onto the source-stack
+                source_stack.append((source, src_pos))
+                print(source_stack)
+                # 1- set the source to be the arg-list
+                # (it is the job of the called rule to pop the arg list off the source stack)
+                source = [binds.get(name) for name in cur_block[block_pos + 1]]
+                src_pos = 0
+                # 3- push the current block onto the stack, create a new bind scope
+                block_stack.append((cur_block, block_pos + 3, binds, traps))
+                cur_block = cur_block[block_pos + 2]
+                block_pos, binds, traps = -1, _LinearizedScope(), []
+            elif opcode is _SRC_POP:
+                print cur_block, block_pos, traps, source, src_pos
+                # import pdb; pdb.set_trace()
+                source, src_pos = source_stack.pop()
+                print(source_stack)
+                is_returning = True
+                # don't really have a value to return, but need to get block_stack
+                # to pop..... consider changing is_returning to end_of_block
+            elif opcode is _SKIP:
+                # [ ..., SKIP, a, b, ...]  immediately jump to b
+                block_pos += 1  # skip next opcode
             # print "RESULT", opcode, block_pos, result, is_returning
             block_pos += 1
 
             # 3- UNWRAP TRAPS
-            is_stopping = (src_pos == len(source))  # check if all source is parsed
+            end_of_input = (src_pos == len(source))
             while is_returning:
                 '''
                 unwrap once to handle the value returned by the evaluation above,
@@ -282,7 +296,7 @@ class Parser(object):
                                 src_pos = last_src_pos
                                 # NOTE: rewind src_pos back to last complete match
                                 break
-                        elif is_stopping:
+                        elif end_of_input:
                             state.append(result)
                             result = state
                         else:
@@ -310,10 +324,7 @@ class Parser(object):
                         assert cur_block[trap_pos + 3] is _SKIP
                         if result is _ERR:  # cond failed
                             src_pos = last_src_pos  # restore src_pos
-                            cur_pos = trap_pos + 4  # go to else branch
-                    elif trapcode is _SKIP:
-                        # [ ..., SKIP, a, b, ...]  immediately jump to b
-                        cur_pos = trap_pos + 2
+                            block_pos = trap_pos + 4  # go to else branch
                     else:
                         assert False, "unrecognized trap opcode"
                 binds.rewind(src_pos)  # throw away any bindings that we have rewound back off of
@@ -323,7 +334,7 @@ class Parser(object):
                 if is_returning:
                     # print "RETURNED", result
                     if not block_stack:
-                        if is_stopping:
+                        if end_of_input and not source_stack:
                             done = True
                             break  # GOOD, end of rules, end of input
                         else:
@@ -489,6 +500,7 @@ if __name__ == "__main__":
     # chk([_BIND, 'foo', _py('1'), [_py('bar')], {'bar': 'foo'}], '', 1)
     # TODO: fix this test to conform to correct rule calls once I figure out what that looks like....
     chk([_NOT, _ANYTHING], '', None)
+    chk([_NOT, _ANYTHING], [], None)
     err_chk([_NOT, _ANYTHING], 'a')
     chk([_OR, ['a', 'b'], ['a', 'c']], 'ac', 'c')
     # check that OR tries the options in the correct order
@@ -498,4 +510,8 @@ if __name__ == "__main__":
     # basic check of IF (building towards RULE calls)
     chk([_IF, 'a', 'b', _SKIP, 'c', 'd'], 'abd', 'd')
     chk([_IF, 'a', 'b', _SKIP, 'c', 'd'], 'cd', 'd')
+    # check rules calling each other
+    no_args_one_a_rule = [_IF, [_NOT, _ANYTHING, _SRC_POP], 'a', _SKIP, [_SRC_POP, 'iou-arg-error']]
+    #                     ^if args ^args=empty       body='a'^   ^skip error ^arg-mismatch-error
+    chk([_CALL, [], no_args_one_a_rule], 'a', 'a')
     print("GOOD")
