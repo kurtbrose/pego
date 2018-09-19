@@ -53,12 +53,8 @@ _opc("SKIP", "a b -- skip a and go straight to b")
 # then-branch as its result)
 _opc("SRC_POP", "pops a source off the source-stack after next opcode returns")
 _opc("CALL", "call another rule")
-
-
-class Marker(Opcode): pass
-
-
-_ERR = Marker("ERR", "means an error is being thrown")
+_opc("ERR", "means an error is being thrown")
+_opc("PASS", "noop; convenient sometimes to give a landing point for SKIP")
 
 
 _STACK_OPCODES = (
@@ -178,7 +174,7 @@ class Parser(object):
         is_returning = False  # finished executing a block or value; unwrapping traps
         # is_returning could also be named "result is valid"
         while not done:
-            assert block_pos <= len(cur_block)
+            assert block_pos < len(cur_block)
             # 1- SET UP TRAPS
             while block_pos < len(cur_block):
                 opcode = cur_block[block_pos]
@@ -237,7 +233,7 @@ class Parser(object):
                 # [ ..., _CALL, [list-of-arg-names], [target-rule], ...]
                 # 0- push the current source + pos onto the source-stack
                 source_stack.append((source, src_pos))
-                print(source_stack)
+                # print(source_stack)
                 # 1- set the source to be the arg-list
                 # (it is the job of the called rule to pop the arg list off the source stack)
                 source = [binds.get(name) for name in cur_block[block_pos + 1]]
@@ -247,7 +243,7 @@ class Parser(object):
                 cur_block = cur_block[block_pos + 2]
                 block_pos, binds, traps = -1, _LinearizedScope(), []
             elif opcode is _SRC_POP:
-                print cur_block, block_pos, traps, source, src_pos
+                # print cur_block, block_pos, traps, source, src_pos
                 # import pdb; pdb.set_trace()
                 source, src_pos = source_stack.pop()
                 print(source_stack)
@@ -256,9 +252,16 @@ class Parser(object):
                 # to pop..... consider changing is_returning to end_of_block
             elif opcode is _SKIP:
                 # [ ..., SKIP, a, b, ...]  immediately jump to b
+                assert len(cur_block) >= block_pos + 2
                 block_pos += 1  # skip next opcode
+            elif opcode is _ERR:
+                result = _ERR
+                is_returning = True
+            elif opcode is _PASS:
+                is_returning = True
             # print "RESULT", opcode, block_pos, result, is_returning
             block_pos += 1
+            # print len(block_stack), block_pos, opcode
 
             # 3- UNWRAP TRAPS
             end_of_input = (src_pos == len(source))
@@ -511,7 +514,7 @@ if __name__ == "__main__":
     chk([_IF, 'a', 'b', _SKIP, 'c', 'd'], 'abd', 'd')
     chk([_IF, 'a', 'b', _SKIP, 'c', 'd'], 'cd', 'd')
     # check rules calling each other
-    no_args_one_a_rule = [_IF, [_NOT, _ANYTHING, _SRC_POP], 'a', _SKIP, [_SRC_POP, 'iou-arg-error']]
+    no_args_one_a_rule = [_IF, [_NOT, _ANYTHING, _SRC_POP], 'a', _SKIP, [_SRC_POP, _ERR], _PASS]
     #                     ^if args ^args=empty       body='a'^   ^skip error ^arg-mismatch-error
     chk([_CALL, [], no_args_one_a_rule], 'a', 'a')
     print("GOOD")
