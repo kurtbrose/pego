@@ -570,6 +570,9 @@ def test():
     fact_grammar = [_BIND, 'n', _ANYTHING, _CALL, ['n'], factorial]
     chk(fact_grammar, [0], 1)
     chk(fact_grammar, [1], 1)
+    err_chk([_BIND, 'n', _py('1'),
+             _CALL, ['n'],  # check that one_arg_0 doesn't accept 1
+                [_IF, one_arg_0, _py('1'), _SKIP, [_SRC_POP, _ERR], _PASS]], '')
     #chk(fact_grammar, [2], 2)
     #chk(fact_grammar, [3], 6)
     #chk(fact_grammar, [4], 24)
