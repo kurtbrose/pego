@@ -55,10 +55,13 @@ _opc("SRC_POP", "pops a source off the source-stack after next opcode returns")
 _opc("CALL", "call another rule")
 _opc("ERR", "means an error is being thrown")
 _opc("PASS", "noop; convenient sometimes to give a landing point for SKIP")
-
+_opc("MATCH", "a b -- if result of b does not match result of a, error")
 
 _STACK_OPCODES = (
-    _NOT, _MAYBE, _REPEAT, _MAYBE_REPEAT, _LITERAL, _OR, _BIND, _IF)
+    _NOT, _MAYBE, _REPEAT, _MAYBE_REPEAT, _LITERAL, _OR, _BIND, _IF, _MATCH)
+
+
+_opc("PENDING", "marker when more execution required")
 
 
 class Grammar(object):
@@ -184,6 +187,8 @@ class Parser(object):
                     state = []
                 elif opcode is _BIND:
                     state = cur_block[block_pos + 1]
+                elif opcode is _MATCH:
+                    state = _PENDING
                 else:
                     state = None
                 traps.append((opcode, block_pos, src_pos, state))
@@ -328,6 +333,15 @@ class Parser(object):
                         if result is _ERR:  # cond failed
                             src_pos = last_src_pos  # restore src_pos
                             block_pos = trap_pos + 4  # go to else branch
+                    elif trapcode is _MATCH:
+                        # [..., MATCH, a, b, ... ]
+                        if state is _PENDING:  # a-branch
+                            if result is not _ERR:
+                                state = result
+                                traps.append((trapcode, trap_pos, src_pos, state))
+                        else:  # b-branch
+                            if state != result:
+                                result = _ERR
                     else:
                         assert False, "unrecognized trap opcode"
                 binds.rewind(src_pos)  # throw away any bindings that we have rewound back off of
@@ -525,6 +539,31 @@ def test():
     chk([_CALL, [], no_args_one_a_rule], 'a', 'a')
     err_chk([_CALL, [], no_args_one_a_rule], 'b')  # error from rule body not matching
     err_chk([_BIND, 'foo', _py('1'), _CALL, ['foo'], no_args_one_a_rule], 'a')  # error from arg mismatch
+    # match tests
+    chk([_MATCH, 'a', 'a'], 'aa', 'a')
+    chk([_MATCH, 'a', _py('"a"')], 'a', 'a')
+    # test factorial rule
+    end_of_args = [_NOT, _ANYTHING, _SRC_POP]
+    one_arg_0 = [0] + end_of_args
+    one_arg_anything = [_BIND, 'n', _ANYTHING] + end_of_args
+    factorial = []
+    factorial.extend(
+        [_IF, one_arg_0, _py('1'), _SKIP,
+            [_IF, one_arg_anything,
+                [_BIND, 'recurse_arg', _py('n - 1'),
+                 _BIND, 'm', [_CALL, ['recurse_arg'], factorial],
+                 _py('n * m')],
+                _SKIP,
+                [_SRC_POP, _ERR],
+                _PASS]])
+    fact_grammar = [_BIND, 'n', _ANYTHING, _CALL, ['n'], factorial]
+    '''
+    chk(fact_grammar, [0], 1)
+    chk(fact_grammar, [1], 1)
+    chk(fact_grammar, [2], 2)
+    chk(fact_grammar, [3], 6)
+    chk(fact_grammar, [4], 24)
+    '''
     print("GOOD")
 
 
