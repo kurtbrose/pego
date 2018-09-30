@@ -517,4 +517,6 @@ if __name__ == "__main__":
     no_args_one_a_rule = [_IF, [_NOT, _ANYTHING, _SRC_POP], 'a', _SKIP, [_SRC_POP, _ERR], _PASS]
     #                     ^if args ^args=empty       body='a'^   ^skip error ^arg-mismatch-error
     chk([_CALL, [], no_args_one_a_rule], 'a', 'a')
+    err_chk([_CALL, [], no_args_one_a_rule], 'b')  # error from rule body not matching
+    err_chk([_BIND, 'foo', _py('1'), _CALL, ['foo'], no_args_one_a_rule], 'a')  # error from arg mismatch
     print("GOOD")
