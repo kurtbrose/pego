@@ -542,9 +542,11 @@ def test():
     # match tests
     chk([_MATCH, 'a', 'a'], 'aa', 'a')
     chk([_MATCH, 'a', _py('"a"')], 'a', 'a')
+    err_chk([_MATCH, 'a', 'b'], 'ab')
+    err_chk([_MATCH, 'a', _py('"b"')], 'a')
     # test factorial rule
     end_of_args = [_NOT, _ANYTHING, _SRC_POP]
-    one_arg_0 = [0] + end_of_args
+    one_arg_0 = [_MATCH, _py('0'), _ANYTHING] + end_of_args
     one_arg_anything = [_BIND, 'n', _ANYTHING] + end_of_args
     factorial = []
     factorial.extend(
@@ -555,15 +557,14 @@ def test():
                  _py('n * m')],
                 _SKIP,
                 [_SRC_POP, _ERR],
-                _PASS]])
+                _PASS],
+            _PASS])
     fact_grammar = [_BIND, 'n', _ANYTHING, _CALL, ['n'], factorial]
-    '''
     chk(fact_grammar, [0], 1)
     chk(fact_grammar, [1], 1)
-    chk(fact_grammar, [2], 2)
-    chk(fact_grammar, [3], 6)
-    chk(fact_grammar, [4], 24)
-    '''
+    #chk(fact_grammar, [2], 2)
+    #chk(fact_grammar, [3], 6)
+    #chk(fact_grammar, [4], 24)
     print("GOOD")
 
 
