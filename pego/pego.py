@@ -106,7 +106,7 @@ class _LinearizedScope(object):
         '''
         get the last value bound to name
         '''
-        return self.name_val_map[name][-1]
+        return self.name_val_map[name]
 
     def rewind(self, src_pos):
         '''
@@ -220,7 +220,7 @@ class Parser(object):
                 try:
                     result = eval(opcode, self.grammar.pyglobals, binds.name_val_map)
                 except Exception as e:
-                    import traceback; traceback.print_exc()
+                    # import traceback; traceback.print_exc()
                     result = _ERR
                 is_returning = True
             elif type(opcode) is list:
@@ -466,13 +466,15 @@ class Rule(object):
 # ANY - allocate list; keep appending match to list until error
 
 
-if __name__ == "__main__":
+def test():
     def chk(rule, src, result, pyglobals=None):
+        assert pyglobals is None or type(pyglobals) is dict
         p = Parser(Grammar({'test': rule}, pyglobals or {}), 'test')
         r = p.parse(src)
         assert r == result, r
         print rule, src, r, "GOOD"
     def err_chk(rule, src, pyglobals=None):
+        assert pyglobals is None or type(pyglobals) is dict
         p = Parser(Grammar({'test': rule}, pyglobals or {}), 'test')
         try:
             p.parse(src)
@@ -488,12 +490,16 @@ if __name__ == "__main__":
     chk([_MAYBE_REPEAT, 'a'], 'a' * 8, ['a'] * 8)
     chk([_MAYBE_REPEAT, ['a']], '', [])
     chk([_MAYBE_REPEAT, 'a', _REPEAT, 'b'], 'bbb', ['b'] * 3)  # maybe repeat is okay with 0 a's
+    a_then_b = [_REPEAT, [_REPEAT, 'a', 'b']]
+    chk(a_then_b, 'aaaaababaaaab', ['b', 'b', 'b'])
+    err_chk(a_then_b, 'aaa')
+    err_chk(a_then_b, '')
     chk([_OR, ['a'], ['b']], 'a', 'a')
     chk([_OR, ['a'], ['b']], 'b', 'b')
     err_chk([_OR, ['a'], ['b']], 'c')
     chk([_OR, 'a', 'b', 'c'], 'ac', 'c')
     chk([_OR, 'a', 'b', 'c'], 'bc', 'c')
-    err_chk([_OR, [_BIND, 'first', 'a', 'bad'], [_BIND, 'second', 'a', 'good'], _py('first')], 'agood', 'a')
+    err_chk([_OR, [_BIND, 'first', 'a', 'bad'], [_BIND, 'second', 'a', 'good'], _py('first')], 'agood')
     # check that _BIND to 'first' is properly unwound
     chk([_LITERAL, _REPEAT, 'a'], 'a' * 8, 'a' * 8)
     chk([_NOT, 'a', 'b'], 'b', 'b')
@@ -520,3 +526,7 @@ if __name__ == "__main__":
     err_chk([_CALL, [], no_args_one_a_rule], 'b')  # error from rule body not matching
     err_chk([_BIND, 'foo', _py('1'), _CALL, ['foo'], no_args_one_a_rule], 'a')  # error from arg mismatch
     print("GOOD")
+
+
+if __name__ == "__main__":
+    test()
