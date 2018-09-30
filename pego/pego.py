@@ -544,6 +544,14 @@ def test():
     chk([_MATCH, 'a', _py('"a"')], 'a', 'a')
     err_chk([_MATCH, 'a', 'b'], 'ab')
     err_chk([_MATCH, 'a', _py('"b"')], 'a')
+    # rule with args
+    sum_rule = [
+        _IF, [_BIND, 'a', _ANYTHING, _BIND, 'b', _ANYTHING, _NOT, _ANYTHING, _SRC_POP],
+        [_py('a + b')], _SKIP, [_SRC_POP, _ERR], _PASS]
+    sum_grammar = [_BIND, 'a', _ANYTHING, _BIND, 'b', _ANYTHING,
+                   _CALL, ['a', 'b'], sum_rule]
+    chk(sum_grammar, [1, 1], 2)  # called w/ correct args, sum_rule works
+    err_chk([_CALL, [], sum_rule], '')  # missing arg fails
     # test factorial rule
     end_of_args = [_NOT, _ANYTHING, _SRC_POP]
     one_arg_0 = [_MATCH, _py('0'), _ANYTHING] + end_of_args
