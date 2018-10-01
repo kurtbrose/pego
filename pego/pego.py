@@ -46,7 +46,7 @@ _opc("LITERAL", "<a> -- throw away result and return accepted input")
 _opc("ANYTHING", ". -- match a single instance of anything")
 _opc("CHECK", "?(py) check that the current result is truthy")
 _opc("IF", "cond then SKIP else ... -- cond passes -> then; cond error -> else")
-_opc("SKIP", "a b -- skip a and go straight to b")
+#_opc("SKIP", "a b -- skip a and go straight to b")
 # SKIP is needed for IF -- it allows then-branch to "jump over" else branch
 # in case cond was true, without throwing away the result of then-branch
 # (that is, and trap-codes "above" the IF should see the result of the
@@ -54,7 +54,7 @@ _opc("SKIP", "a b -- skip a and go straight to b")
 _opc("SRC_POP", "pops a source off the source-stack after next opcode returns")
 _opc("CALL", "call another rule")
 _opc("ERR", "means an error is being thrown")
-_opc("PASS", "noop; convenient sometimes to give a landing point for SKIP")
+#_opc("PASS", "noop; convenient sometimes to give a landing point for SKIP")
 _opc("MATCH", "a b -- if result of b does not match result of a, error")
 
 _STACK_OPCODES = (
@@ -543,7 +543,7 @@ def test():
     chk([_IF, 'a', 'b', 'c', 'd'], 'abd', 'd')
     chk([_IF, 'a', 'b', 'c', 'd'], 'cd', 'd')
     # check rules calling each other
-    no_args_one_a_rule = [_IF, [_NOT, _ANYTHING, _SRC_POP], 'a', [_SRC_POP, _ERR], _PASS]
+    no_args_one_a_rule = [_IF, [_NOT, _ANYTHING, _SRC_POP], 'a', [_SRC_POP, _ERR]]
     #                     ^if args ^args=empty       body='a'^   ^skip error ^arg-mismatch-error
     chk([_CALL, [], no_args_one_a_rule], 'a', 'a')
     err_chk([_CALL, [], no_args_one_a_rule], 'b')  # error from rule body not matching
@@ -556,7 +556,7 @@ def test():
     # rule with args
     sum_rule = [
         _IF, [_BIND, 'a', _ANYTHING, _BIND, 'b', _ANYTHING, _NOT, _ANYTHING, _SRC_POP],
-        [_py('a + b')], [_SRC_POP, _ERR], _PASS]
+        [_py('a + b')], [_SRC_POP, _ERR]]
     sum_grammar = [_BIND, 'a', _ANYTHING, _BIND, 'b', _ANYTHING,
                    _CALL, ['a', 'b'], sum_rule]
     chk(sum_grammar, [1, 1], 2)  # called w/ correct args, sum_rule works
@@ -567,9 +567,8 @@ def test():
         _py('1'),
         [
             _IF, ['b', _NOT, _ANYTHING, _SRC_POP],
-            _py('2'), [_SRC_POP, _ERR], _PASS
+            _py('2'), [_SRC_POP, _ERR]
         ],
-        _PASS
     ]
     a1_b2_grammar = [_BIND, 'p', _ANYTHING, _CALL, ['p'], a1_b2_rule]
     '''
@@ -586,15 +585,13 @@ def test():
                 [_BIND, 'recurse_arg', _py('n - 1'),
                  _BIND, 'm', [_CALL, ['recurse_arg'], factorial],
                  _py('n * m')],
-                [_SRC_POP, _ERR],
-                _PASS],
-            _PASS])
+                [_SRC_POP, _ERR]]])
     fact_grammar = [_BIND, 'n', _ANYTHING, _CALL, ['n'], factorial]
     chk(fact_grammar, [0], 1)
     chk(fact_grammar, [1], 1)
     err_chk([_BIND, 'n', _py('1'),
              _CALL, ['n'],  # check that one_arg_0 doesn't accept 1
-                [_IF, one_arg_0, _py('1'), [_SRC_POP, _ERR], _PASS]], '')
+                [_IF, one_arg_0, _py('1'), [_SRC_POP, _ERR]]], '')
     chk(fact_grammar, [2], 2)
     #chk(fact_grammar, [3], 6)
     #chk(fact_grammar, [4], 24)
