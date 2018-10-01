@@ -227,6 +227,7 @@ class Parser(object):
                 except Exception as e:
                     # import traceback; traceback.print_exc()
                     result = _ERR
+                print "EVAL RESULT", result
                 is_returning = True
             elif type(opcode) is list:
                 # internal flow control w/in a rule; same scope
@@ -246,12 +247,12 @@ class Parser(object):
                 # 3- push the current block onto the stack, create a new bind scope
                 block_stack.append((cur_block, block_pos + 3, binds, traps))
                 cur_block = cur_block[block_pos + 2]
+                print "CALL", cur_block[:4]
                 block_pos, binds, traps = -1, _LinearizedScope(), []
             elif opcode is _SRC_POP:
                 # print cur_block, block_pos, traps, source, src_pos
                 # import pdb; pdb.set_trace()
                 source, src_pos = source_stack.pop()
-                print(source_stack)
                 is_returning = True
                 # don't really have a value to return, but need to get block_stack
                 # to pop..... consider changing is_returning to end_of_block
@@ -357,6 +358,7 @@ class Parser(object):
                         else:
                             raise ValueError("extra input: {}".format(repr(source[src_pos:])))
                     cur_block, block_pos, binds, traps = block_stack.pop()
+                    print "RETURNING", result
         if result is _ERR:
             raise Exception('oh no!')  # raise a super-good exception
         return result
@@ -552,6 +554,19 @@ def test():
                    _CALL, ['a', 'b'], sum_rule]
     chk(sum_grammar, [1, 1], 2)  # called w/ correct args, sum_rule works
     err_chk([_CALL, [], sum_rule], '')  # missing arg fails
+    # two rules accepting different args w/ cascade behavior
+    a1_b2_rule = [
+        _IF, [_MATCH, 'a', _ANYTHING, _NOT, _ANYTHING, _SRC_POP],
+        _py('1'), _SKIP,
+        [
+            _IF, [_MATCH, 'b', _ANYTHING, _NOT, _ANYTHING, _SRC_POP],
+            _py('2'), _SKIP, [_SRC_POP, _ERR], _PASS
+        ],
+        _PASS
+    ]
+    a1_b2_grammar = [_BIND, 'p', _ANYTHING, _CALL, ['p'], a1_b2_rule]
+    chk(a1_b2_grammar, 'a', 1)
+    chk(a1_b2_grammar, 'b', 2)
     # test factorial rule
     end_of_args = [_NOT, _ANYTHING, _SRC_POP]
     one_arg_0 = [_MATCH, _py('0'), _ANYTHING] + end_of_args
@@ -573,7 +588,7 @@ def test():
     err_chk([_BIND, 'n', _py('1'),
              _CALL, ['n'],  # check that one_arg_0 doesn't accept 1
                 [_IF, one_arg_0, _py('1'), _SKIP, [_SRC_POP, _ERR], _PASS]], '')
-    #chk(fact_grammar, [2], 2)
+    chk(fact_grammar, [2], 2)
     #chk(fact_grammar, [3], 6)
     #chk(fact_grammar, [4], 24)
     print("GOOD")
