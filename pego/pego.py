@@ -187,10 +187,8 @@ class Parser(object):
                     state = []
                 elif opcode is _BIND:
                     state = cur_block[block_pos + 1]
-                elif opcode is _MATCH:
-                    state = _PENDING
                 else:
-                    state = None
+                    state = _PENDING
                 traps.append((opcode, block_pos, src_pos, state))
                 if opcode is _BIND:
                     block_pos += 1  # advance 1 more since pos + 1 is bind name
@@ -208,7 +206,7 @@ class Parser(object):
                     result = source[src_pos]
                     src_pos += 1
                 else:
-                    result = _ERR
+                    result = _ERR; print "111111111"
                 is_returning = True
             elif type(opcode) is str:  # string literal match
                 if str_source and source[src_pos:src_pos + len(opcode)] == opcode:
@@ -219,14 +217,14 @@ class Parser(object):
                     result = opcode
                     src_pos += 1
                 else:
-                    result = _ERR
+                    result = _ERR; print "222222222"
                 is_returning = True
             elif type(opcode) is types.CodeType:  # eval python expression
                 try:
                     result = eval(opcode, self.grammar.pyglobals, binds.name_val_map)
                 except Exception as e:
                     # import traceback; traceback.print_exc()
-                    result = _ERR
+                    result = _ERR; print "33333333333"
                 print "EVAL RESULT", result
                 is_returning = True
             elif type(opcode) is list:
@@ -252,7 +250,8 @@ class Parser(object):
             elif opcode is _SRC_POP:
                 # print cur_block, block_pos, traps, source, src_pos
                 # import pdb; pdb.set_trace()
-                source, src_pos = source_stack.pop()
+                if result is not _ERR:
+                    source, src_pos = source_stack.pop()
                 is_returning = True
                 # don't really have a value to return, but need to get block_stack
                 # to pop..... consider changing is_returning to end_of_block
@@ -261,7 +260,8 @@ class Parser(object):
                 assert len(cur_block) >= block_pos + 2
                 block_pos += 1  # skip next opcode
             elif opcode is _ERR:
-                result = _ERR
+                result = _ERR; print "4444444444"
+                # import pdb; pdb.set_trace()
                 is_returning = True
             elif opcode is _PASS:
                 is_returning = True
@@ -292,7 +292,7 @@ class Parser(object):
                             src_pos = last_src_pos
                             break
                         else:
-                            result = _ERR
+                            result = _ERR; print "555555"
                     elif trapcode is _MAYBE:
                         if result is _ERR:
                             src_pos = last_src_pos
@@ -329,12 +329,19 @@ class Parser(object):
                             # to skip over second branch
                             block_pos += 1
                     elif trapcode is _IF:
-                        # [ ..., _IF, cond, then, SKIP, else, ...]
-                        assert cur_block[trap_pos + 3] is _SKIP
-                        if result is _ERR:  # cond failed
-                            src_pos = last_src_pos  # restore src_pos
-                            block_pos = trap_pos + 4  # go to else branch
+                        # [ ..., _IF, cond, then, else, ...]
+                        if state is _PENDING:  # eval cond
+                            if result is _ERR:  # else-branch
+                                src_pos = last_src_pos  # roll-back cond-eval
+                                block_pos = trap_pos + 3  # go-to else branch
+                                break
+                            else:  # if-branch
+                                traps.append((trapcode, trap_pos, src_pos, True))
+                                break
+                        else:  # if-branch finishing
+                            block_pos = trap_pos + 4  # skip else-branch
                     elif trapcode is _MATCH:
+                        #import pdb; pdb.set_trace()
                         # [..., MATCH, a, b, ... ]
                         if state is _PENDING:  # a-branch
                             if result is not _ERR:
@@ -342,7 +349,7 @@ class Parser(object):
                                 traps.append((trapcode, trap_pos, src_pos, state))
                         else:  # b-branch
                             if state != result:
-                                result = _ERR
+                                result = _ERR; print "666666666"
                     else:
                         assert False, "unrecognized trap opcode"
                 binds.rewind(src_pos)  # throw away any bindings that we have rewound back off of
@@ -533,10 +540,10 @@ def test():
               [_ANYTHING, _BIND, 'r', _py('2')],
               _py('r')], 'a', 1)
     # basic check of IF (building towards RULE calls)
-    chk([_IF, 'a', 'b', _SKIP, 'c', 'd'], 'abd', 'd')
-    chk([_IF, 'a', 'b', _SKIP, 'c', 'd'], 'cd', 'd')
+    chk([_IF, 'a', 'b', 'c', 'd'], 'abd', 'd')
+    chk([_IF, 'a', 'b', 'c', 'd'], 'cd', 'd')
     # check rules calling each other
-    no_args_one_a_rule = [_IF, [_NOT, _ANYTHING, _SRC_POP], 'a', _SKIP, [_SRC_POP, _ERR], _PASS]
+    no_args_one_a_rule = [_IF, [_NOT, _ANYTHING, _SRC_POP], 'a', [_SRC_POP, _ERR], _PASS]
     #                     ^if args ^args=empty       body='a'^   ^skip error ^arg-mismatch-error
     chk([_CALL, [], no_args_one_a_rule], 'a', 'a')
     err_chk([_CALL, [], no_args_one_a_rule], 'b')  # error from rule body not matching
@@ -549,22 +556,23 @@ def test():
     # rule with args
     sum_rule = [
         _IF, [_BIND, 'a', _ANYTHING, _BIND, 'b', _ANYTHING, _NOT, _ANYTHING, _SRC_POP],
-        [_py('a + b')], _SKIP, [_SRC_POP, _ERR], _PASS]
+        [_py('a + b')], [_SRC_POP, _ERR], _PASS]
     sum_grammar = [_BIND, 'a', _ANYTHING, _BIND, 'b', _ANYTHING,
                    _CALL, ['a', 'b'], sum_rule]
     chk(sum_grammar, [1, 1], 2)  # called w/ correct args, sum_rule works
     err_chk([_CALL, [], sum_rule], '')  # missing arg fails
     # two rules accepting different args w/ cascade behavior
     a1_b2_rule = [
-        _IF, [_MATCH, 'a', _ANYTHING, _NOT, _ANYTHING, _SRC_POP],
-        _py('1'), _SKIP,
+        _IF, ['a', _NOT, _ANYTHING, _SRC_POP],
+        _py('1'),
         [
-            _IF, [_MATCH, 'b', _ANYTHING, _NOT, _ANYTHING, _SRC_POP],
-            _py('2'), _SKIP, [_SRC_POP, _ERR], _PASS
+            _IF, ['b', _NOT, _ANYTHING, _SRC_POP],
+            _py('2'), [_SRC_POP, _ERR], _PASS
         ],
         _PASS
     ]
     a1_b2_grammar = [_BIND, 'p', _ANYTHING, _CALL, ['p'], a1_b2_rule]
+    '''
     chk(a1_b2_grammar, 'a', 1)
     chk(a1_b2_grammar, 'b', 2)
     # test factorial rule
@@ -573,12 +581,11 @@ def test():
     one_arg_anything = [_BIND, 'n', _ANYTHING] + end_of_args
     factorial = []
     factorial.extend(
-        [_IF, one_arg_0, _py('1'), _SKIP,
+        [_IF, one_arg_0, _py('1'),
             [_IF, one_arg_anything,
                 [_BIND, 'recurse_arg', _py('n - 1'),
                  _BIND, 'm', [_CALL, ['recurse_arg'], factorial],
                  _py('n * m')],
-                _SKIP,
                 [_SRC_POP, _ERR],
                 _PASS],
             _PASS])
@@ -587,10 +594,11 @@ def test():
     chk(fact_grammar, [1], 1)
     err_chk([_BIND, 'n', _py('1'),
              _CALL, ['n'],  # check that one_arg_0 doesn't accept 1
-                [_IF, one_arg_0, _py('1'), _SKIP, [_SRC_POP, _ERR], _PASS]], '')
+                [_IF, one_arg_0, _py('1'), [_SRC_POP, _ERR], _PASS]], '')
     chk(fact_grammar, [2], 2)
     #chk(fact_grammar, [3], 6)
     #chk(fact_grammar, [4], 24)
+    '''
     print("GOOD")
 
 
