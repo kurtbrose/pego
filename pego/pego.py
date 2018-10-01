@@ -555,8 +555,10 @@ def test():
     # match tests
     chk([_MATCH, 'a', 'a'], 'aa', 'a')
     chk([_MATCH, 'a', _py('"a"')], 'a', 'a')
+    chk([_MATCH, _py('0'), _ANYTHING], [0], 0)
     err_chk([_MATCH, 'a', 'b'], 'ab')
     err_chk([_MATCH, 'a', _py('"b"')], 'a')
+    err_chk([_MATCH, _py('0'), _ANYTHING], [1])
     # rule with args
     sum_rule = [
         _IF, [_BIND, 'a', _ANYTHING, _BIND, 'b', _ANYTHING, _NOT, _ANYTHING, _SRC_POP],
