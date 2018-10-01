@@ -217,7 +217,7 @@ class Parser(object):
                     result = opcode
                     src_pos += 1
                 else:
-                    result = _ERR; print "222222222"
+                    result = _ERR; print "222222222", source, src_pos, opcode
                 is_returning = True
             elif type(opcode) is types.CodeType:  # eval python expression
                 try:
@@ -241,6 +241,7 @@ class Parser(object):
                 # 1- set the source to be the arg-list
                 # (it is the job of the called rule to pop the arg list off the source stack)
                 source = [binds.get(name) for name in cur_block[block_pos + 1]]
+                str_source = False
                 src_pos = 0
                 # 3- push the current block onto the stack, create a new bind scope
                 block_stack.append((cur_block, block_pos + 3, binds, traps))
@@ -252,19 +253,22 @@ class Parser(object):
                 # import pdb; pdb.set_trace()
                 if result is not _ERR:
                     source, src_pos = source_stack.pop()
+                    str_source = type(source) is not list
                 is_returning = True
                 # don't really have a value to return, but need to get block_stack
                 # to pop..... consider changing is_returning to end_of_block
-            elif opcode is _SKIP:
-                # [ ..., SKIP, a, b, ...]  immediately jump to b
-                assert len(cur_block) >= block_pos + 2
-                block_pos += 1  # skip next opcode
             elif opcode is _ERR:
                 result = _ERR; print "4444444444"
                 # import pdb; pdb.set_trace()
                 is_returning = True
+            '''
             elif opcode is _PASS:
                 is_returning = True
+            elif opcode is _SKIP:
+                # [ ..., SKIP, a, b, ...]  immediately jump to b
+                assert len(cur_block) >= block_pos + 2
+                block_pos += 1  # skip next opcode
+            '''
             # print "RESULT", opcode, block_pos, result, is_returning
             block_pos += 1
             # print len(block_stack), block_pos, opcode
@@ -561,6 +565,21 @@ def test():
                    _CALL, ['a', 'b'], sum_rule]
     chk(sum_grammar, [1, 1], 2)  # called w/ correct args, sum_rule works
     err_chk([_CALL, [], sum_rule], '')  # missing arg fails
+    # rule applying other rule in args
+    a_rule = [_IF, ['a', _NOT, _ANYTHING, _SRC_POP], _py('"a"'), [_SRC_POP, _ERR]]
+    aaa_rule = [
+        _IF, [
+            _BIND, 'one', _ANYTHING, _CALL, ['one'], a_rule,
+            _BIND, 'two', _ANYTHING, _CALL, ['two'], a_rule,
+            _BIND, 'three', _ANYTHING, _CALL, ['three'], a_rule,
+            _NOT, _ANYTHING, _SRC_POP],
+        _py('"hello"'),
+        [_SRC_POP, _ERR]
+    ]
+    aaa_grammar = [_BIND, 'c', _ANYTHING, _CALL, ['c', 'c', 'c'], aaa_rule]
+    chk([_BIND, 'c', _ANYTHING, _CALL, ['c'], a_rule], 'a', 'a')
+    chk(aaa_grammar, 'a', 'hello')
+    err_chk(aaa_grammar, 'b')
     # two rules accepting different args w/ cascade behavior
     a1_b2_rule = [
         _IF, ['a', _NOT, _ANYTHING, _SRC_POP],
@@ -571,7 +590,6 @@ def test():
         ],
     ]
     a1_b2_grammar = [_BIND, 'p', _ANYTHING, _CALL, ['p'], a1_b2_rule]
-    '''
     chk(a1_b2_grammar, 'a', 1)
     chk(a1_b2_grammar, 'b', 2)
     # test factorial rule
@@ -595,7 +613,6 @@ def test():
     chk(fact_grammar, [2], 2)
     #chk(fact_grammar, [3], 6)
     #chk(fact_grammar, [4], 24)
-    '''
     print("GOOD")
 
 
