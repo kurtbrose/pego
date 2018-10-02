@@ -204,6 +204,7 @@ class Parser(object):
             if opcode is _ANYTHING:
                 if src_pos < len(source):
                     result = source[src_pos]
+                    print "_ANYTHING RESULT", result
                     src_pos += 1
                 else:
                     result = _ERR; print "111111111"
@@ -355,11 +356,12 @@ class Parser(object):
                             if result is not _ERR:
                                 state = result
                                 traps.append((trapcode, trap_pos, src_pos, state))
+                                break
                         else:  # b-branch
                             if state != result:
                                 result = _ERR; print "666666666"
                             else:
-                                print "MATCHED", state, result
+                                print "MATCHED", state, result, source
                     else:
                         assert False, "unrecognized trap opcode"
                 binds.rewind(src_pos)  # throw away any bindings that we have rewound back off of
@@ -622,7 +624,7 @@ def test():
              _CALL, ['n'],  # check that one_arg_0 doesn't accept 1
                 [_IF, one_arg_0, _py('1'), [_SRC_POP, _ERR]]], '')
     chk([_IF, [_MATCH, _py('0'), _ANYTHING], _py('1'), _py('100')], [0], 1)
-    chk([_IF, [_MATCH, _py('0'), _ANYTHING], _py('1'), _py('100')], ['no-match'], 100)
+    chk([_IF, [_MATCH, _py('0'), _ANYTHING], _py('1'), _ANYTHING, _py('100')], ['no-match'], 100)
     chk([_BIND, 'n', _py('1'), _CALL, ['n'], [  # check that else-branch is executed on arg mis-match
         _IF, one_arg_0, _py('1'), _py('100')]], '', 100)
     chk(fact_grammar, [2], 2)
