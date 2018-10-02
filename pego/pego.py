@@ -225,7 +225,9 @@ class Parser(object):
                 except Exception as e:
                     # import traceback; traceback.print_exc()
                     result = _ERR; print "33333333333"
-                print "EVAL RESULT", result
+                import dis
+                print "EVAL RESULT", result, binds.name_val_map, opcode.co_names
+                print dis.dis(opcode.co_code)
                 is_returning = True
             elif type(opcode) is list:
                 # internal flow control w/in a rule; same scope
@@ -336,10 +338,12 @@ class Parser(object):
                         # [ ..., _IF, cond, then, else, ...]
                         if state is _PENDING:  # eval cond
                             if result is _ERR:  # else-branch
+                                print "ELSE"
                                 src_pos = last_src_pos  # roll-back cond-eval
                                 block_pos = trap_pos + 3  # go-to else branch
                                 break
                             else:  # if-branch
+                                print "IF BRANCH", cur_block[trap_pos + 1]
                                 traps.append((trapcode, trap_pos, src_pos, True))
                                 break
                         else:  # if-branch finishing
@@ -354,6 +358,8 @@ class Parser(object):
                         else:  # b-branch
                             if state != result:
                                 result = _ERR; print "666666666"
+                            else:
+                                print "MATCHED", state, result
                     else:
                         assert False, "unrecognized trap opcode"
                 binds.rewind(src_pos)  # throw away any bindings that we have rewound back off of
@@ -555,7 +561,9 @@ def test():
     # match tests
     chk([_MATCH, 'a', 'a'], 'aa', 'a')
     chk([_MATCH, 'a', _py('"a"')], 'a', 'a')
+    chk([_MATCH, _py('"a"'), 'a'], 'a', 'a')
     chk([_MATCH, _py('0'), _ANYTHING], [0], 0)
+    chk([_MATCH, _ANYTHING, _py('0')], [0], 0)
     err_chk([_MATCH, 'a', 'b'], 'ab')
     err_chk([_MATCH, 'a', _py('"b"')], 'a')
     err_chk([_MATCH, _py('0'), _ANYTHING], [1])
@@ -566,6 +574,7 @@ def test():
     sum_grammar = [_BIND, 'a', _ANYTHING, _BIND, 'b', _ANYTHING,
                    _CALL, ['a', 'b'], sum_rule]
     chk(sum_grammar, [1, 1], 2)  # called w/ correct args, sum_rule works
+    chk(sum_grammar, [1, 2], 3)
     err_chk([_CALL, [], sum_rule], '')  # missing arg fails
     # rule applying other rule in args
     a_rule = [_IF, ['a', _NOT, _ANYTHING, _SRC_POP], _py('"a"'), [_SRC_POP, _ERR]]
@@ -612,6 +621,10 @@ def test():
     err_chk([_BIND, 'n', _py('1'),
              _CALL, ['n'],  # check that one_arg_0 doesn't accept 1
                 [_IF, one_arg_0, _py('1'), [_SRC_POP, _ERR]]], '')
+    chk([_IF, [_MATCH, _py('0'), _ANYTHING], _py('1'), _py('100')], [0], 1)
+    chk([_IF, [_MATCH, _py('0'), _ANYTHING], _py('1'), _py('100')], ['no-match'], 100)
+    chk([_BIND, 'n', _py('1'), _CALL, ['n'], [  # check that else-branch is executed on arg mis-match
+        _IF, one_arg_0, _py('1'), _py('100')]], '', 100)
     chk(fact_grammar, [2], 2)
     #chk(fact_grammar, [3], 6)
     #chk(fact_grammar, [4], 24)
