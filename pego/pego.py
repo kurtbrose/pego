@@ -204,10 +204,9 @@ class Parser(object):
             if opcode is _ANYTHING:
                 if src_pos < len(source):
                     result = source[src_pos]
-                    print "_ANYTHING RESULT", result
                     src_pos += 1
                 else:
-                    result = _ERR; print "111111111"
+                    result = _ERR
                 is_returning = True
             elif type(opcode) is str:  # string literal match
                 if str_source and source[src_pos:src_pos + len(opcode)] == opcode:
@@ -218,17 +217,14 @@ class Parser(object):
                     result = opcode
                     src_pos += 1
                 else:
-                    result = _ERR; print "222222222", source, src_pos, opcode
+                    result = _ERR
                 is_returning = True
             elif type(opcode) is types.CodeType:  # eval python expression
                 try:
                     result = eval(opcode, self.grammar.pyglobals, binds.name_val_map)
                 except Exception as e:
                     # import traceback; traceback.print_exc()
-                    result = _ERR; print "33333333333"
-                import dis
-                print "EVAL RESULT", result, binds.name_val_map, opcode.co_names
-                print dis.dis(opcode.co_code)
+                    result = _ERR
                 is_returning = True
             elif type(opcode) is list:
                 # internal flow control w/in a rule; same scope
@@ -249,7 +245,6 @@ class Parser(object):
                 # 3- push the current block onto the stack, create a new bind scope
                 block_stack.append((cur_block, block_pos + 3, binds, traps))
                 cur_block = cur_block[block_pos + 2]
-                print "CALL", cur_block[:4]
                 block_pos, binds, traps = -1, _LinearizedScope(), []
             elif opcode is _SRC_POP:
                 # print cur_block, block_pos, traps, source, src_pos
@@ -261,7 +256,7 @@ class Parser(object):
                 # don't really have a value to return, but need to get block_stack
                 # to pop..... consider changing is_returning to end_of_block
             elif opcode is _ERR:
-                result = _ERR; print "4444444444"
+                result = _ERR
                 # import pdb; pdb.set_trace()
                 is_returning = True
             '''
@@ -282,6 +277,7 @@ class Parser(object):
                 '''
                 unwrap once to handle the value returned by the evaluation above,
                 then continue unwrapping as long as the current block has reached its end
+                or result is _ERR
                 '''
                 while traps:
                     '''
@@ -299,7 +295,7 @@ class Parser(object):
                             src_pos = last_src_pos
                             break
                         else:
-                            result = _ERR; print "555555"
+                            result = _ERR
                     elif trapcode is _MAYBE:
                         if result is _ERR:
                             src_pos = last_src_pos
@@ -330,6 +326,7 @@ class Parser(object):
                             # (NOTE: block_pos will advance, but OR is no
                             #  longer on the stack so next error will not be caught)
                             src_pos = last_src_pos
+                            result = None  # stop error propagation
                             break
                         else:
                             # if first branch worked, increment block_pos
@@ -339,12 +336,11 @@ class Parser(object):
                         # [ ..., _IF, cond, then, else, ...]
                         if state is _PENDING:  # eval cond
                             if result is _ERR:  # else-branch
-                                print "ELSE"
                                 src_pos = last_src_pos  # roll-back cond-eval
                                 block_pos = trap_pos + 3  # go-to else branch
+                                result = None  # stop error propagation
                                 break
                             else:  # if-branch
-                                print "IF BRANCH", cur_block[trap_pos + 1]
                                 traps.append((trapcode, trap_pos, src_pos, True))
                                 break
                         else:  # if-branch finishing
@@ -359,15 +355,13 @@ class Parser(object):
                                 break
                         else:  # b-branch
                             if state != result:
-                                result = _ERR; print "666666666"
-                            else:
-                                print "MATCHED", state, result, source
+                                result = _ERR
                     else:
                         assert False, "unrecognized trap opcode"
                 binds.rewind(src_pos)  # throw away any bindings that we have rewound back off of
                 # fully unwrapped current traps without any instructions to resume execution
                 # iterate to the next step: either (1) advance cur_pos, or (2) pop the stack
-                is_returning = (block_pos == len(cur_block))
+                is_returning = (block_pos == len(cur_block) or result is _ERR)
                 if is_returning:
                     # print "RETURNED", result
                     if not block_stack:
@@ -377,7 +371,6 @@ class Parser(object):
                         else:
                             raise ValueError("extra input: {}".format(repr(source[src_pos:])))
                     cur_block, block_pos, binds, traps = block_stack.pop()
-                    print "RETURNING", result
         if result is _ERR:
             raise Exception('oh no!')  # raise a super-good exception
         return result
@@ -530,7 +523,7 @@ def test():
     err_chk(a_then_b, 'aaa')
     err_chk(a_then_b, '')
     chk([_OR, ['a'], ['b']], 'a', 'a')
-    chk([_OR, ['a'], ['b']], 'b', 'b')
+    chk([_OR, 'a', 'b'], 'b', 'b')
     err_chk([_OR, ['a'], ['b']], 'c')
     chk([_OR, 'a', 'b', 'c'], 'ac', 'c')
     chk([_OR, 'a', 'b', 'c'], 'bc', 'c')
@@ -626,10 +619,10 @@ def test():
     chk([_IF, [_MATCH, _py('0'), _ANYTHING], _py('1'), _py('100')], [0], 1)
     chk([_IF, [_MATCH, _py('0'), _ANYTHING], _py('1'), _ANYTHING, _py('100')], ['no-match'], 100)
     chk([_BIND, 'n', _py('1'), _CALL, ['n'], [  # check that else-branch is executed on arg mis-match
-        _IF, one_arg_0, _py('1'), _py('100')]], '', 100)
+        _IF, one_arg_0, _py('2'), _py('3'), _SRC_POP]], '', 3)
     chk(fact_grammar, [2], 2)
-    #chk(fact_grammar, [3], 6)
-    #chk(fact_grammar, [4], 24)
+    chk(fact_grammar, [3], 6)
+    chk(fact_grammar, [4], 24)
     print("GOOD")
 
 
