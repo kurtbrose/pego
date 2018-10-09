@@ -391,14 +391,33 @@ class _Call(object):
 _py = lambda code: compile(code, '<string>', 'eval')
 
 
+'''
+A stripped down version of the grammar, used as to compile
+the more complete BOOTSTRAP2 grammar
+'''
 _BOOTSTRAP1_GRAMMAR = Grammar(
     {
-        'ws': [_REPEAT, [_OR, ' ',  '\n']],
-        'brk': [_Ref('ws'), _MAYBE, ['#', _MAYBE_REPEAT, [_NOT, '\n',], '\n']],
-        'grammar': [_BIND, 'rules', [_REPEAT, _Ref('rule')], _py('dict(rules)')],
-        'rule': [_BIND, 'name', _Ref('name'), '= ', _BIND, 'expr', _Ref('expr'), _py('(name, expr)')],
-        'name': [_LITERAL, [_REPEAT, [_NOT, _Ref('ws'), _ANYTHING]]],
-        'expr': [],
+        'ws': [_REPEAT, _OR, ' ',  '\n'],
+        'brk': [_Ref('ws'), _MAYBE, ['#', _MAYBE_REPEAT, _NOT, '\n', '\n']],
+        'grammar': [_BIND, 'rules', _REPEAT, _Ref('rule'), _py('dict(rules)')],
+        'rule': [_BIND, 'name', _BIND, 'name', _Ref('name'), '= ',
+                 _BIND, 'expr', _Ref('expr'), _py('(name, expr)')],
+        'name': [_LITERAL, _REPEAT, [_NOT, _Ref('ws'), _ANYTHING]],
+        'expr': [_BIND, 'body'] + sum(
+            [[_OR, _Ref(rule)] for rule in ('leaf_expr', 'either', 'bind', 'maybe_repeat', 'repeat')],
+            []) + [_MAYBE, [_BIND, 'action', _Ref('pyc'), _py('body + [action]')]],
+        'parens': ['(', _BIND, 'inner', _Ref('expr'), ')', _py('inner')],
+        'not': ['~', _BIND, 'inner', _Ref('expr'), _py('[_NOT, inner]')],
+        'literal': ['<', _BIND, 'inner', _Ref('expr'), '>', _py('[_LITERAL, inner]')],
+        #TODO: str, tok, py, pyc, call_rule, leaf_expr
+        'either': [_BIND, 'first', _Ref('either1'), '|', _BIND, 'second',
+                   _Ref('either1'), _py('[_OR, first] + second')],
+        'either1': [_OR, _Ref('leaf_expr'), _OR, _Ref('maybe_repeat'),
+                    _OR, _Ref('repeat'), _Ref('bind')],
+        'bind': [_BIND, 'inner', [_OR, _Ref('leaf_expr'), _OR, _Ref('maybe_repeat'), _Ref('repeat')],
+                 ':', _BIND, 'name', _Ref('name'), _py('[_BIND, name, inner]')],
+        'maybe_repeat': [_BIND, 'inner', _Ref('leaf_expr'), '+', _py('[_MAYBE_REPEAT, inner]')],
+        'repeat': [_BIND, 'inner', '*', _py('[_REPEAT, inner]')]
     },
     {
         'Grammar': Grammar
@@ -410,6 +429,7 @@ _BOOTSTRAP1_GRAMMAR = Grammar(
 # in order to make the first bootstrap grammar which must be hand
 # coded as simple as possible
 _BOOTSTRAP2_GRAMMAR = '''
+ws = (' ' | '\t' | '\n')
 '''
 
 # builtins
