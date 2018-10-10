@@ -307,7 +307,6 @@ class Parser(object):
                                 result = state
                                 src_pos = last_src_pos
                                 # NOTE: rewind src_pos back to last complete match
-                                break
                         elif end_of_input:
                             state.append(result)
                             result = state
@@ -409,7 +408,8 @@ _BOOTSTRAP1_GRAMMAR = Grammar(
         'parens': ['(', _BIND, 'inner', _Ref('expr'), ')', _py('inner')],
         'not': ['~', _BIND, 'inner', _Ref('expr'), _py('[_NOT, inner]')],
         'literal': ['<', _BIND, 'inner', _Ref('expr'), '>', _py('[_LITERAL, inner]')],
-        #TODO: str, tok, py, pyc, call_rule, leaf_expr
+        'str': ["'", _BIND, 'val', _LITERAL, _MAYBE_REPEAT, [_OR, "\\'", [_NOT, "'", _ANYTHING]], "'", _py('val')],
+        #TODO: tok, py, pyc, call_rule, leaf_expr
         'either': [_BIND, 'first', _Ref('either1'), '|', _BIND, 'second',
                    _Ref('either1'), _py('[_OR, first] + second')],
         'either1': [_OR, _Ref('leaf_expr'), _OR, _Ref('maybe_repeat'),
@@ -514,13 +514,13 @@ class Rule(object):
 # ANY - allocate list; keep appending match to list until error
 
 
-def test():
+def test_opcodes():
     def chk(rule, src, result, pyglobals=None):
         assert pyglobals is None or type(pyglobals) is dict
         p = Parser(Grammar({'test': rule}, pyglobals or {}), 'test')
         r = p.parse(src)
         assert r == result, r
-        print rule, src, r, "GOOD"
+        # print rule, src, r, "GOOD"
     def err_chk(rule, src, pyglobals=None):
         assert pyglobals is None or type(pyglobals) is dict
         p = Parser(Grammar({'test': rule}, pyglobals or {}), 'test')
@@ -643,8 +643,25 @@ def test():
     chk(fact_grammar, [2], 2)
     chk(fact_grammar, [3], 6)
     chk(fact_grammar, [4], 24)
-    print("GOOD")
+    # misc chunks to help bootstrapping grammar
+    chk([_LITERAL, _MAYBE_REPEAT, [_OR, "\\'", [_NOT, "'", _ANYTHING]]], "\\'abc", "\\'abc")
+    chk([_LITERAL, _MAYBE_REPEAT, _ANYTHING], "abc", "abc")
+    chk([_LITERAL, _MAYBE_REPEAT, _ANYTHING], "", "")
+    chk([_BIND, 'val', "\\'abc", "'", _py('val')], "\\'abc'", "\\'abc")
+    chk([_BIND, 'val', _LITERAL, _MAYBE_REPEAT, [_OR, "\\'", [_NOT, "'", _ANYTHING]], "'", _py('val')],
+        "\\'abc'", "\\'abc")
+
+
+def test_bootstrap():
+    def chk(rule_name, src, expected):
+        parser = Parser(_BOOTSTRAP1_GRAMMAR, rule_name)
+        result = parser.parse(src)
+        assert result == expected, result
+
+    chk('str', "''", '')
 
 
 if __name__ == "__main__":
-    test()
+    test_opcodes()
+    test_bootstrap()
+    print("GOOD")
