@@ -409,7 +409,13 @@ _BOOTSTRAP1_GRAMMAR = Grammar(
         'not': ['~', _BIND, 'inner', _Ref('expr'), _py('[_NOT, inner]')],
         'literal': ['<', _BIND, 'inner', _Ref('expr'), '>', _py('[_LITERAL, inner]')],
         'str': ["'", _BIND, 'val', _LITERAL, _MAYBE_REPEAT, [_OR, "\\'", [_NOT, "'", _ANYTHING]], "'", _py('val')],
-        #TODO: tok, py, pyc, call_rule, leaf_expr
+        #TODO: tok, pyc
+        'py': ['!(', _BIND, 'code', _Ref('pyc'), ')', _py('code')],
+        'call_rule': [
+            _BIND, 'rulename', _Ref('name'), _BIND, 'args', _MAYBE, [
+                '(', _BIND, 'first', _Ref('name'), _BIND, 'rest', _MAYBE_REPEAT, [',', _Ref('name')], ')'],
+            _py('[_CALL, args or [], _Ref(rulename)]')],
+        'leaf_expr': sum([[_OR, _Ref(r)] for r in ('parens', 'not', 'literal', 'str')], []) + [_Ref('py')],
         'either': [_BIND, 'first', _Ref('either1'), '|', _BIND, 'second',
                    _Ref('either1'), _py('[_OR, first] + second')],
         'either1': [_OR, _Ref('leaf_expr'), _OR, _Ref('maybe_repeat'),
@@ -659,6 +665,8 @@ def test_bootstrap():
         assert result == expected, result
 
     chk('str', "''", '')
+    chk('str', "'abc'", 'abc')
+    chk('str', "'\\'abc'", "\\'abc")
 
 
 if __name__ == "__main__":
