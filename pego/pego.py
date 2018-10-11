@@ -1,3 +1,4 @@
+import copy
 import types
 
 
@@ -30,6 +31,9 @@ class Opcode(object):
 
     def __repr__(self):
         return '<[' + self.name + ']>'
+
+    def __copy__(self): return self
+    def __deepcopy__(self, memo): return self
 
 
 def _opc(name, description):
@@ -64,6 +68,35 @@ _STACK_OPCODES = (
 _opc("PENDING", "marker when more execution required")
 
 
+def _compile_rules(rule_dict):
+    # TODO: support rules with args
+    # recursive copy of rule opcodes, since we are going to mutate in place
+    compiled_rules = copy.deepcopy(rule_dict)  # TODO: deepcopy might break user objects, use a lighter touch
+    callable_rules = {
+        name: [  # TODO: chaining multiple definitions
+            _IF,  # if args-match, then body, else error
+            [_NOT, _ANYTHING, _SRC_POP],  # args  -- TODO: non-empty arg expression handling
+            rule,  # body -- mutate-in-place below will fix it up
+            [_SRC_POP, _ERR]]
+        for name, rule in compiled_rules.items()}
+    stack = compiled_rules.values()
+    seen = set()
+    while stack:
+        cur = list(stack.pop())
+        if id(cur) in seen:
+            continue
+        seen.add(id(cur))
+        # recurse to get all stacks
+        stack.extend([code for code in cur if type(code) is list])
+        for pos in range(len(stack)):
+            if isinstance(stack[pos], _Ref):  # replace refs with calls
+                if _Ref.rulename not in rule_dict:
+                    raise ValueError('reference to rule {} not in grammar'.format(_Ref.rulename))
+                # TODO: non-empty calling arg sequence
+                stack[pos:pos + 1] = [_CALL, [], callable_rules[_Ref.rulename]]
+    return compiled_rules
+
+
 class Grammar(object):
     '''
     A grammar, generated from an input.
@@ -73,7 +106,7 @@ class Grammar(object):
     # opcodes = attr.ib()  # big list of opcodes
     # pyglobals = attr.ib()  # python variables to expose to eval expressions
     def __init__(self, rules, pyglobals):
-        self.rules, self.pyglobals = rules, pyglobals
+        self.rules, self.pyglobals = _compile_rules(rules), pyglobals
 
     def from_text(cls, text, pyglobals=None):
         '''
