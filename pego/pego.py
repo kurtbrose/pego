@@ -414,6 +414,9 @@ class _Ref(object):
     def __init__(self, rulename):
         self.rulename = rulename
 
+    def __repr__(self):
+        return "<Ref-{}>".format(self.rulename)
+
 
 class _Call(object):
     def __init__(self, rulename, arglist):
@@ -697,10 +700,15 @@ def test_bootstrap():
         result = parser.parse(src)
         assert result == expected, result
 
-    chk('str', "''", '')
-    chk('str', "'abc'", 'abc')
-    chk('str', "'\\'abc'", "\\'abc")
+    def chk_str(rule_name):
+        'check a rule which should accept a string literal does'
+        chk(rule_name, "''", '')
+        chk(rule_name, "'abc'", 'abc')
+        chk(rule_name, "'\\'abc'", "\\'abc")
 
+    chk_str('str')
+    #chk_str('leaf_expr')
+    #chk_str('expr')
 
 if __name__ == "__main__":
     test_opcodes()
