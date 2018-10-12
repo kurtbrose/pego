@@ -82,18 +82,19 @@ def _compile_rules(rule_dict):
     stack = compiled_rules.values()
     seen = set()
     while stack:
-        cur = list(stack.pop())
+        cur = stack.pop()
+        assert type(cur) is list
         if id(cur) in seen:
             continue
         seen.add(id(cur))
         # recurse to get all stacks
         stack.extend([code for code in cur if type(code) is list])
-        for pos in range(len(stack)):
-            if isinstance(stack[pos], _Ref):  # replace refs with calls
-                if _Ref.rulename not in rule_dict:
-                    raise ValueError('reference to rule {} not in grammar'.format(_Ref.rulename))
+        for pos, opcode in enumerate(cur):
+            if isinstance(opcode, _Ref):  # replace refs with calls
+                if opcode.rulename not in rule_dict:
+                    raise ValueError('reference to rule {} not in grammar'.format(opcode.rulename))
                 # TODO: non-empty calling arg sequence
-                stack[pos:pos + 1] = [_CALL, [], callable_rules[_Ref.rulename]]
+                cur[pos:pos + 1] = [_CALL, [], callable_rules[opcode.rulename]]
     return compiled_rules
 
 
@@ -445,7 +446,8 @@ _BOOTSTRAP1_GRAMMAR = Grammar(
         'not': ['~', _BIND, 'inner', _Ref('expr'), _py('[_NOT, inner]')],
         'literal': ['<', _BIND, 'inner', _Ref('expr'), '>', _py('[_LITERAL, inner]')],
         'str': ["'", _BIND, 'val', _LITERAL, _MAYBE_REPEAT, [_OR, "\\'", [_NOT, "'", _ANYTHING]], "'", _py('val')],
-        #TODO: tok, pyc
+        'tok': [_NOT, _ANYTHING],  # TODO: real tok
+        'pyc': [_NOT, _ANYTHING],  # TODO: real pyc
         'py': ['!(', _BIND, 'code', _Ref('pyc'), ')', _py('code')],
         'call_rule': [
             _BIND, 'rulename', _Ref('name'), _BIND, 'args', _MAYBE, [
