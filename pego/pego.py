@@ -712,6 +712,8 @@ def test_bootstrap():
     #chk_str('leaf_expr')
     #chk_str('expr')
 
+    chk('name', 'bob', 'bob')
+
 if __name__ == "__main__":
     test_opcodes()
     test_bootstrap()
