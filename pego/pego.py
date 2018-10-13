@@ -68,6 +68,18 @@ _STACK_OPCODES = (
 _opc("PENDING", "marker when more execution required")
 
 
+class _SymbolTable(object):
+    '''
+    keeps track of reverse lookups for callable rules so that stack traces
+    can be nicely labelled
+    '''
+    def __init__(self, callable_rules):
+        self._id_name_map = {id(val): key for key, val in callable_rules.items()}
+
+    def block_name(self, block):
+        return self._id_name_map.get(id(block))
+
+
 def _compile_rules(rule_dict):
     # TODO: support rules with args
     # recursive copy of rule opcodes, since we are going to mutate in place
@@ -95,7 +107,7 @@ def _compile_rules(rule_dict):
                     raise ValueError('reference to rule {} not in grammar'.format(opcode.rulename))
                 # TODO: non-empty calling arg sequence
                 cur[pos:pos + 1] = [_CALL, [], callable_rules[opcode.rulename]]
-    return compiled_rules
+    return compiled_rules, _SymbolTable(callable_rules)
 
 
 class Grammar(object):
@@ -107,7 +119,8 @@ class Grammar(object):
     # opcodes = attr.ib()  # big list of opcodes
     # pyglobals = attr.ib()  # python variables to expose to eval expressions
     def __init__(self, rules, pyglobals):
-        self.rules, self.pyglobals = _compile_rules(rules), pyglobals
+        self.rules, self.symbols = _compile_rules(rules)
+        self.pyglobals = pyglobals
 
     def from_text(cls, text, pyglobals=None):
         '''
@@ -157,6 +170,71 @@ class _LinearizedScope(object):
                 del self.name_val_map[name]
             else:
                 self.name_val_map[name] = oldval
+
+
+def _format_opcode(opcode, symbols):
+    if type(opcode) is list:
+        name = symbols.block_name(opcode)
+        if name:
+            return '[' + name + ']'
+        else:
+            return '[...]'
+    else:
+        return repr(opcode)
+
+
+def _format_block_pos(block, pos, symbols, before=3, after=3):
+    '''
+    summarize a block by showing the opcodes around its current position
+    '''
+    segments = []
+    if pos <= before:
+        prefix = []
+        segments.extend(block[:pos])
+    else:
+        prefix = ['...']
+        segments.extend(block[pos - before:pos])
+    cur_pos = len(segments)
+    segments.append(block[pos])
+    segments.append('*' + _format_opcode(block[pos], symbols) + '*')
+    if pos + after + 1 > len(block):
+        segments.extend(block[pos + 1:])
+        suffix = []
+    else:
+        segments.extend(block[pos + 1:pos + after + 1])
+        suffix = ['...']
+    fmt_segs = [_format_opcode(opcode, symbols) for opcode in segments]
+    fmt_segs[cur_pos] = '*' + fmt_segs[cur_pos] + '*'
+    return ','.join(prefix + fmt_segs + suffix)
+
+
+def _format_blockstack(block_stack, symbols):
+    '''
+    format a traceback style output for a block stack
+    '''
+    stack = []
+    indent = 0
+    for cur_block, block_pos, binds, traps in block_stack:
+        name = symbols.block_name(cur_block)
+        cur_line = []
+        if name:
+            indent = 0
+            cur_line.append(name)
+        else:
+            indent += 3
+        opcodes = _format_block_pos(cur_block, block_pos, symbols)
+        cur_line.append(' ' * indent)
+        cur_line.append(opcodes)
+        stack.append(''.join(cur_line))
+        print stack
+    return '\n'.join(stack)
+
+
+class ParseError(Exception):
+    def __init__(self, message, block_stack, symbols):
+        self.message, self.block_stack, self.symbols = message, block_stack, symbols
+        self.args = _format_blockstack(block_stack, symbols) + '\n' + message,
+        print self.args[0]
 
 
 class Parser(object):
@@ -211,7 +289,8 @@ class Parser(object):
         is_returning = False  # finished executing a block or value; unwrapping traps
         # is_returning could also be named "result is valid"
         while not done:
-            assert block_pos < len(cur_block)
+            if not block_pos < len(cur_block):
+                raise ParseError('ran off end of block', block_stack, self.grammar.symbols)
             # 1- SET UP TRAPS
             while block_pos < len(cur_block):
                 opcode = cur_block[block_pos]
@@ -709,7 +788,7 @@ def test_bootstrap():
         chk(rule_name, "'\\'abc'", "\\'abc")
 
     chk_str('str')
-    #chk_str('leaf_expr')
+    chk_str('leaf_expr')
     #chk_str('expr')
 
     chk('name', 'bob', 'bob')
