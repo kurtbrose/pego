@@ -30,7 +30,7 @@ class Opcode(object):
         self.name, self.description = name, description
 
     def __repr__(self):
-        return '<[' + self.name + ']>'
+        return '<' + self.name + '>'
 
     def __copy__(self): return self
     def __deepcopy__(self, memo): return self
@@ -172,13 +172,17 @@ class _LinearizedScope(object):
                 self.name_val_map[name] = oldval
 
 
-def _format_opcode(opcode, symbols):
+def _format_opcode(opcode, symbols, recurse=True):
     if type(opcode) is list:
         name = symbols.block_name(opcode)
         if name:
             return '[' + name + ']'
-        else:
+        elif recurse:
+            return '[' + ', '.join(_format_opcode(e, symbols, False) for e in opcode) + ']'
+        elif opcode:
             return '[...]'
+        else:
+            return '[]'
     else:
         return repr(opcode)
 
@@ -187,25 +191,27 @@ def _format_block_pos(block, pos, symbols, before=3, after=3):
     '''
     summarize a block by showing the opcodes around its current position
     '''
-    segments = []
     if pos <= before:
         prefix = []
-        segments.extend(block[:pos])
+        start = 0
     else:
         prefix = ['...']
-        segments.extend(block[pos - before:pos])
-    cur_pos = len(segments)
-    segments.append(block[pos])
-    segments.append('*' + _format_opcode(block[pos], symbols) + '*')
+        start = pos - before
     if pos + after + 1 > len(block):
-        segments.extend(block[pos + 1:])
+        end = len(block)
         suffix = []
     else:
-        segments.extend(block[pos + 1:pos + after + 1])
+        end = pos + after + 1
         suffix = ['...']
-    fmt_segs = [_format_opcode(opcode, symbols) for opcode in segments]
-    fmt_segs[cur_pos] = '*' + fmt_segs[cur_pos] + '*'
-    return ','.join(prefix + fmt_segs + suffix)
+    formatted_opcodes = []
+    fmt_opc = lambda recurse=True: _format_opcode(opcode, symbols, recurse)
+    for i in range(start, end):
+        opcode = block[i]
+        if i == pos:
+            formatted_opcodes.append('*' + fmt_opc(False) + '*')
+        else:
+            formatted_opcodes.append(fmt_opc())
+    return ','.join(prefix + formatted_opcodes + suffix)
 
 
 def _format_blockstack(block_stack, symbols):
@@ -226,7 +232,6 @@ def _format_blockstack(block_stack, symbols):
         cur_line.append(' ' * indent)
         cur_line.append(opcodes)
         stack.append(''.join(cur_line))
-        print stack
     return '\n'.join(stack)
 
 
@@ -234,7 +239,6 @@ class ParseError(Exception):
     def __init__(self, message, block_stack, symbols):
         self.message, self.block_stack, self.symbols = message, block_stack, symbols
         self.args = _format_blockstack(block_stack, symbols) + '\n' + message,
-        print self.args[0]
 
 
 class Parser(object):
@@ -788,8 +792,8 @@ def test_bootstrap():
         chk(rule_name, "'\\'abc'", "\\'abc")
 
     chk_str('str')
-    chk_str('leaf_expr')
-    #chk_str('expr')
+    #chk_str('leaf_expr')
+    chk_str('expr')
 
     chk('name', 'bob', 'bob')
 
