@@ -164,7 +164,7 @@ def test_bootstrap():
         chk(rule_name, "'\\'abc'", "\\'abc")
 
     chk_str('str')
-    #chk_str('leaf_expr')
+    chk_str('leaf_expr')
     chk_str('expr')
 
     chk('name', 'bob', 'bob')

@@ -175,10 +175,39 @@ def _format_blockstack(block_stack, symbols):
     return '\n'.join(stack)
 
 
+def _format_source(src, pos):
+    if type(src) is list:
+        # TODO: can probably do better than this, but mostly
+        # concerned with strings for now
+        src = src[pos:]
+        if len(list) <= 3:
+            return repr(list)
+        return '...' + repr(list[-3:])
+    else:
+        assert isinstance(src, basestring)
+        marker = ' ' * min(pos, 11) + '^'
+        if pos <= 11:
+            line_prefix = src[:pos]
+        else:
+            line_prefix = '...' + src[pos - 8:pos]
+        if len(src) <= pos + 11:
+            line_suffix = src[pos:]
+        else:
+            line_suffix = src[pos:pos + 8] + '...'
+        line = line_prefix + line_suffix
+        pos_detail = 'at byte {} of {} (line {})'.format(
+            pos + 1, len(src), src[:pos].count('\n') + 1)
+        return '{}\n{}\n{}'.format(pos_detail, line, marker)
+
+
 class ParseError(Exception):
-    def __init__(self, message, block_stack, symbols):
+    def __init__(self, message, block_stack, symbols, src, pos):
         self.message, self.block_stack, self.symbols = message, block_stack, symbols
-        self.args = _format_blockstack(block_stack, symbols) + '\n' + message,
+        self.args = '{}\n{}\n{}'.format(
+            message,
+            _format_source(src, pos),
+            _format_blockstack(block_stack, symbols),
+        ),
 
 
 class Parser(object):
@@ -234,7 +263,12 @@ class Parser(object):
         # is_returning could also be named "result is valid"
         while not done:
             if not block_pos < len(cur_block):
-                raise ParseError('ran off end of block', block_stack, self.grammar.symbols)
+                raise ParseError(
+                    'ran off end of block',
+                    block_stack,
+                    self.grammar.symbols,
+                    source,
+                    src_pos)
             # 1- SET UP TRAPS
             while block_pos < len(cur_block):
                 opcode = cur_block[block_pos]
